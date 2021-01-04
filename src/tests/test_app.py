@@ -76,6 +76,8 @@ class TestBot:
 
         return user.key
 
+    # Creates new user
+
     #
     #   Test cases
     #
@@ -141,15 +143,15 @@ class TestBot:
             update = self.createUpdate("/remind", userKey.id())
 
             resp = self.sendToWebhook(update)
-            assert looseCompare(
-                resp.json()["text"],
-                STRINGS["reminder_existing_config"]
-                + STRINGS["reminder_change_config"].format("AM"),
-            )
-            assert resp.json()["reply_markup"] == TelegramMarkup.ReminderAmKeyboard
 
             context.clear_cache()
             user: User = userKey.get()
+
+            assert resp.json()["text"] == STRINGS["reminder_existing_config"].format(
+                f"{user.remindAM:02}:01", f"{user.remindPM:02}:01"
+            ) + STRINGS["reminder_change_config"].format("AM")
+            assert resp.json()["reply_markup"] == TelegramMarkup.ReminderAmKeyboard
+
             assert user.status == UserState.REMIND_SET_AM
 
         # No prior configuration
@@ -185,16 +187,75 @@ class TestBot:
             update = self.createUpdate(TEST_URL, userKey.id())
 
             resp = self.sendToWebhook(update)
-            assert looseCompare(resp.json()["text"], STRINGS["group_msg"])
+
+            context.clear_cache()
+            user: User = userKey.get()
+
+            assert resp.json()["text"] == STRINGS["group_msg"].format(user.groupName)
             assert (
                 resp.json()["reply_markup"] == TelegramMarkup.GroupConfirmationKeyboard
             )
 
-            context.clear_cache()
-            user: User = userKey.get()
             assert user.status == UserState.INIT_CONFIRM_URL
             assert user.groupName == TEST_GROUPNAME
             assert user.groupMembers
+
+    # Tests querying of user for their name
+    def test_queryMemberName(self):
+
+        # Test correct group URL response (<300 members)
+        with self.ndbClient.context() as context:
+            userKey = self.createUser(
+                {
+                    "status": UserState.INIT_CONFIRM_URL,
+                    "groupId": "TEST_GROUPID",
+                    "groupName": "TEST_GROUPNAME",
+                    "groupMembers": json.dumps(
+                        [{"id": "TEST_MEMBERID", "identifier": "TEST_MEMBERNAME",}]
+                    ),
+                }
+            )
+            update = self.createUpdate(STRINGS["group_keyboard_yes"], userKey.id())
+
+            resp = self.sendToWebhook(update)
+            assert resp.json()["text"].startswith(STRINGS["member_msg_1"])
+
+            context.clear_cache()
+            user: User = userKey.get()
+            groupMembers = json.loads(user.groupMembers)
+
+            assert resp.json()["reply_markup"] == TelegramMarkup.NameSelectionKeyboard(
+                [x["identifier"] for x in groupMembers]
+            )
+            assert user.status == UserState.INIT_GET_NAME
+
+        # Test correct group URL response (member overflow)
+        with self.ndbClient.context() as context:
+            userKey = self.createUser(
+                {
+                    "status": UserState.INIT_CONFIRM_URL,
+                    "groupId": "TEST_GROUPID",
+                    "groupName": "TEST_GROUPNAME",
+                    # Create 400 members to overflow
+                    "groupMembers": json.dumps(
+                        [
+                            {
+                                "id": f"TEST_MEMBERID_{i}",
+                                "identifier": f"TEST_MEMBERNAME_{i}",
+                            }
+                            for i in range(400)
+                        ]
+                    ),
+                }
+            )
+            update = self.createUpdate(STRINGS["group_keyboard_yes"], userKey.id())
+
+            resp = self.sendToWebhook(update)
+            assert resp.json()["text"] == STRINGS["member_overflow"].format(400)
+
+            context.clear_cache()
+            user: User = userKey.get()
+            assert user.status == UserState.INIT_GET_NAME
 
     # Tests handling of INIT_CONFIRM_URL
     def test_INIT_CONFIRM_URL(self):
@@ -241,47 +302,55 @@ class TestBot:
             user: User = userKey.get()
             assert user.status == UserState.INIT_CONFIRM_URL
 
-        # Test correct group URL response (<300 members)
-        with self.ndbClient.context() as context:
-            userKey = _createUser()
-            update = self.createUpdate(STRINGS["group_keyboard_yes"], userKey.id())
+    # Tests handling of INIT_GET_NAME
+    def test_INIT_GET_NAME(self):
 
-            resp = self.sendToWebhook(update)
-            assert resp.json()["text"].startswith(STRINGS["member_msg_1"])
-
-            context.clear_cache()
-            user: User = userKey.get()
-            groupMembers = json.loads(user.groupMembers)
-
-            assert resp.json()["reply_markup"] == TelegramMarkup.NameSelectionKeyboard(
-                [x["identifier"] for x in groupMembers]
-            )
-            assert user.status == UserState.INIT_GET_NAME
-
-        # Test correct group URL response (member overflow)
-        with self.ndbClient.context() as context:
-            userKey = self.createUser(
+        # Minimal state required
+        def _createUser() -> ndb.Key:
+            return self.createUser(
                 {
-                    "status": UserState.INIT_CONFIRM_URL,
+                    "status": UserState.INIT_GET_NAME,
                     "groupId": "TEST_GROUPID",
                     "groupName": "TEST_GROUPNAME",
-                    # Create 400 members to overflow
                     "groupMembers": json.dumps(
                         [
                             {
-                                "id": f"TEST_MEMBERID_{i}",
-                                "identifier": f"TEST_MEMBERNAME_{i}",
+                                "id": "TEST_MEMBERID",
+                                "identifier": "TEST_MEMBERNAME",
+                                "hasPin": "True",
                             }
-                            for i in range(400)
                         ]
                     ),
                 }
             )
-            update = self.createUpdate(STRINGS["group_keyboard_yes"], userKey.id())
+
+        # Test valid name given
+        with self.ndbClient.context() as context:
+            userKey = _createUser()
+            update = self.createUpdate("TEST_MEMBERNAME", userKey.id())
 
             resp = self.sendToWebhook(update)
-            assert resp.json()["text"] == STRINGS["member_overflow"].format(400)
 
             context.clear_cache()
             user: User = userKey.get()
+
+            assert resp.json()["text"] == STRINGS["member_msg_2"].format(
+                user.memberName
+            )
+            assert (
+                resp.json()["reply_markup"] == TelegramMarkup.MemberConfirmationKeyboard
+            )
+
+            assert user.status == UserState.INIT_GET_PIN
+
+        # Test invalid name given
+        with self.ndbClient.context() as context:
+            userKey = _createUser()
+            update = self.createUpdate("TEST_FAIL", userKey.id())
+
+            resp = self.sendToWebhook(update)
+
+            context.clear_cache()
+            user: User = userKey.get()
+
             assert user.status == UserState.INIT_GET_NAME

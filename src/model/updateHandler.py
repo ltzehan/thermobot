@@ -116,11 +116,35 @@ class UpdateHandler:
         # TODO write test
         return self.update.makeReply(STRINGS["invalid_input"])
 
+    # Parses the scraped data of group members and sends a reply asking the user to select their name
+    def queryMemberName(self):
+        groupMembers: list = json.loads(self.user.groupMembers)
+        names = ["{}. <b>{}</b>".format(i + 1, x) for i, x in enumerate(groupMembers)]
+
+        text = STRINGS["member_msg_1"] + "\n".join(names)
+
+        # Maximum lengths imposed by Telegram API
+        if len(groupMembers) > 300 or len(text) > 4096:
+            # Request user to manually input their names; too bad for them
+            return self.update.makeReply(
+                STRINGS["member_overflow"].format(str(len(groupMembers)))
+            )
+
+        # Otherwise send a list of names
+        return self.update.makeReply(
+            text,
+            TelegramMarkup.NameSelectionKeyboard(
+                [x["identifier"] for x in groupMembers]
+            ),
+            reply=False,
+        )
+
     def handleByState(self):
 
         state = self.user.status
         if state == UserState.INIT_START:
             # Get temptaking data
+
             ttWrapper = TemptakingWrapper(self.update.text)
             if not ttWrapper.isValid():
                 return self.update.makeReply(STRINGS["invalid_url"])
@@ -149,32 +173,13 @@ class UpdateHandler:
 
         elif state == UserState.INIT_CONFIRM_URL:
             # User to confirm group URL
-            if self.update.text == STRINGS["group_keyboard_yes"]:
-                groupMembers: list = json.loads(self.user.groupMembers)
-                names = [
-                    "{}. <b>{}</b>".format(i, x) for i, x in enumerate(groupMembers)
-                ]
 
-                text = STRINGS["member_msg_1"] + "\n".join(names)
+            if self.update.text == STRINGS["group_keyboard_yes"]:
 
                 self.user.status = UserState.INIT_GET_NAME
                 self.user.put()
 
-                # Maximum lengths imposed by Telegram API
-                if len(groupMembers) > 300 or len(text) > 4096:
-                    # Request user to manually input their names; too bad for them
-                    return self.update.makeReply(
-                        STRINGS["member_overflow"].format(str(len(groupMembers)))
-                    )
-
-                # Otherwise send a list of names
-                return self.update.makeReply(
-                    text,
-                    TelegramMarkup.NameSelectionKeyboard(
-                        [x["identifier"] for x in groupMembers]
-                    ),
-                    reply=False,
-                )
+                return self.queryMemberName()
 
             elif self.update.text == STRINGS["group_keyboard_no"]:
                 # User indicated wrong URL
@@ -190,5 +195,30 @@ class UpdateHandler:
                     TelegramMarkup.GroupConfirmationKeyboard,
                     reply=False,
                 )
+
+        elif self.user.status == UserState.INIT_GET_NAME:
+            # User to enter their name
+
+            groupMembers = json.loads(self.user.groupMembers)
+
+            try:
+                # Find index of user's name
+                idx = [x["identifier"] for x in groupMembers].index(self.update.text)
+
+                self.user.status = UserState.INIT_GET_PIN
+
+            except ValueError:
+                # Ask for name again
+                return self.queryMemberName()
+
+            self.user.memberId = groupMembers[idx]["id"]
+            self.user.memberName = groupMembers[idx]["identifier"]
+            self.user.pin = str(groupMembers[idx]["hasPin"])
+            self.user.put()
+
+            text = STRINGS["member_msg_2"].format(self.user.memberName)
+            return self.update.makeReply(
+                text, markup=TelegramMarkup.MemberConfirmationKeyboard, reply=False
+            )
 
         return "TODO"

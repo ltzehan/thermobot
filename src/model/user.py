@@ -11,6 +11,7 @@ class UserState:
     INIT_START = "1"
     INIT_CONFIRM_URL = "2"
     INIT_GET_NAME = "3"
+    INIT_GET_PIN = "4"
     # TODO
 
     # Default state after configuration
