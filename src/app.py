@@ -3,12 +3,12 @@ import json
 from typing import List
 from flask import Flask, request, jsonify
 
-from ndbMiddleware import NdbMiddleware
-from apiWrapper import TelegramApiWrapper
+from .ndbMiddleware import NdbMiddleware
+from .apiWrapper import TelegramApiWrapper
 
-from stringConstants import StringConstants
-from model.webhookUpdate import WebhookUpdate
-from model.updateHandler import UpdateHandler
+from .stringConstants import StringConstants
+from .model.webhookUpdate import WebhookUpdate
+from .model.updateHandler import UpdateHandler
 
 # Configure logging
 logging.basicConfig(

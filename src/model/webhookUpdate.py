@@ -2,7 +2,7 @@
 #   Wrapper for Telegram Webhook update object
 #
 
-from model.telegramMarkup import TelegramMarkup
+from .telegramMarkup import TelegramMarkup
 
 
 class WebhookUpdate:

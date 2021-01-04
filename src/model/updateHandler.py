@@ -8,11 +8,11 @@ from datetime import datetime, timedelta, timezone
 
 logger = logging.getLogger(__name__)
 
-from stringConstants import StringConstants
+from ..stringConstants import StringConstants
 
-from model.user import User, UserState
-from model.webhookUpdate import WebhookUpdate
-from model.telegramMarkup import TelegramMarkup
+from .user import User, UserState
+from .webhookUpdate import WebhookUpdate
+from .telegramMarkup import TelegramMarkup
 
 STRINGS = StringConstants().STRINGS
 
@@ -82,16 +82,34 @@ class UpdateHandler:
                     now.time, now.dayOfWeek, now.date, now.meridies
                 )
 
-                # Update user state
+                # Now wait for user to send temperature
                 self.user.status = UserState.TEMP_REPORT
                 self.user.put()
+                logger.error(self.user.status)
+                logger.error(self.user.key.id())
 
                 return self.update.makeReply(text, TelegramMarkup.TemperatureKeyboard)
 
             elif command == "/remind":
+                # TODO Write tests
                 # Configure reminders
-                # TODO
-                return "TODO"
+                if self.user.remindAM == -1 or self.user.remindPM == -1:
+                    # Reminder not configured
+                    text = STRINGS["reminder_not_configured"]
+                else:
+                    # Show existing configuration
+                    currentAm, currentPm = self.user.remindAM, self.user.remindPM
+                    text = STRINGS["reminder_existing_config"].format(
+                        f"{currentAm:02}:01", f"{currentPm:02}:01"
+                    )
+
+                text += STRINGS["reminder_change_config"].format("AM")
+
+                # Now waiting for user to send AM reminder time
+                self.user.status = UserState.REMIND_SET_AM
+                self.user.put()
+
+                return self.update.makeReply(text, TelegramMarkup.ReminderAmKeyboard)
 
         # TODO write test
         return self.update.makeReply(STRINGS["invalid_input"])

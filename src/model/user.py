@@ -2,11 +2,10 @@
 #   Cloud NDB entity for handling user
 #
 
-import enum
 from google.cloud import ndb
 
 # The string enum values are inherited for back-compatability reasons
-class UserState(enum.Enum):
+class UserState:
     # Initialization states
     INIT_DEFAULT = "0"
     INIT_START = "1"
@@ -21,7 +20,7 @@ class UserState(enum.Enum):
 
     # User is configuring reminders
     REMIND_SET_AM = "remind wizard 1"
-    REMIND_SET_PM = "remidn wizard 2"
+    REMIND_SET_PM = "remind wizard 2"
 
     # valid_command_states = [
     #     "endgame 1",
@@ -40,7 +39,7 @@ class User(ndb.Model):
     firstName = ndb.StringProperty()
 
     # User state in the state machine
-    status = ndb.StringProperty(default="0")
+    status = ndb.StringProperty(default=UserState.INIT_DEFAULT)
 
     # From temptaking website
     groupId = ndb.StringProperty()
