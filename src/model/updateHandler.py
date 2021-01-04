@@ -14,7 +14,7 @@ from ..stringConstants import StringConstants
 from .user import User, UserState
 from .webhookUpdate import WebhookUpdate
 from .telegramMarkup import TelegramMarkup
-from ..temptakingWrapper import TemptakingWrapper
+from ..util.temptakingWrapper import TemptakingWrapper
 
 STRINGS = StringConstants().STRINGS
 

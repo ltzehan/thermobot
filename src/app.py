@@ -3,8 +3,8 @@ import json
 from typing import List
 from flask import Flask, request, jsonify
 
-from .ndbMiddleware import NdbMiddleware
-from .telegramWrapper import TelegramApiWrapper
+from .util.ndbMiddleware import NdbMiddleware
+from .util.telegramWrapper import TelegramApiWrapper
 
 from .stringConstants import StringConstants
 from .model.webhookUpdate import WebhookUpdate

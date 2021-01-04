@@ -1,4 +1,4 @@
-from ..temptakingWrapper import TemptakingWrapper
+from ..util.temptakingWrapper import TemptakingWrapper
 
 TEST_URL = "https://temptaking.ado.sg/group/45442b0cf7f2cb90783f421805e6ad8d"
 
