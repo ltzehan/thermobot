@@ -1,6 +1,6 @@
 import json
 
-
+# TODO These are loading on every instantiation, maybe make this a singleton?
 class StringConstants:
 
     STRINGS = None

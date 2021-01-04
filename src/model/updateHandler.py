@@ -147,4 +147,48 @@ class UpdateHandler:
                 else:
                     return self.update.makeReply(STRINGS["website_error"], reply=False)
 
+        elif state == UserState.INIT_CONFIRM_URL:
+            # User to confirm group URL
+            if self.update.text == STRINGS["group_keyboard_yes"]:
+                groupMembers: list = json.loads(self.user.groupMembers)
+                names = [
+                    "{}. <b>{}</b>".format(i, x) for i, x in enumerate(groupMembers)
+                ]
+
+                text = STRINGS["member_msg_1"] + "\n".join(names)
+
+                self.user.status = UserState.INIT_GET_NAME
+                self.user.put()
+
+                # Maximum lengths imposed by Telegram API
+                if len(groupMembers) > 300 or len(text) > 4096:
+                    # Request user to manually input their names; too bad for them
+                    return self.update.makeReply(
+                        STRINGS["member_overflow"].format(str(len(groupMembers)))
+                    )
+
+                # Otherwise send a list of names
+                return self.update.makeReply(
+                    text,
+                    TelegramMarkup.NameSelectionKeyboard(
+                        [x["identifier"] for x in groupMembers]
+                    ),
+                    reply=False,
+                )
+
+            elif self.update.text == STRINGS["group_keyboard_no"]:
+                # User indicated wrong URL
+                # Reset user to previous state to reenter group URL
+                self.user.reset()
+                self.user.status = UserState.INIT_START
+                self.user.put()
+
+                return self.update.makeReply(STRINGS["SAF100_2"], reply=False)
+            else:
+                return self.update.makeReply(
+                    STRINGS["use_keyboard"],
+                    TelegramMarkup.GroupConfirmationKeyboard,
+                    reply=False,
+                )
+
         return "TODO"

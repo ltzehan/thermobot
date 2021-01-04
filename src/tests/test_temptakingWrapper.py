@@ -1,6 +1,7 @@
 from ..util.temptakingWrapper import TemptakingWrapper
 
-TEST_URL = "https://temptaking.ado.sg/group/45442b0cf7f2cb90783f421805e6ad8d"
+TEST_URL = "https://temptaking.ado.sg/group/49c22125544196a0ce745f504bd0608a"
+TEST_GROUPNAME = "thermobot-test"
 
 
 class TestTemptakingWrapper:
@@ -27,7 +28,5 @@ class TestTemptakingWrapper:
         ttWrapper = TemptakingWrapper(TEST_URL)
         assert ttWrapper.load()
 
-        # No test group so any one is fine
-        assert ttWrapper.groupName == "Adept"
-        assert ttWrapper.groupId == "45442b0cf7f2cb90783f421805e6ad8d"
+        assert ttWrapper.groupName == TEST_GROUPNAME
         assert len(ttWrapper.groupMembers) > 0

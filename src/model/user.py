@@ -60,13 +60,19 @@ class User(ndb.Model):
     blocked = ndb.BooleanProperty(default=False)
 
     def reset(self):
-        self.status = "1"
+        self.status = UserState.INIT_START
+        self.groupId = None
+        self.groupName = None
+        self.groupMembers = None
+        self.memberName = None
+        self.memberId = None
+        self.pin = None
         self.temp = "init"
         self.remindAM = -1
         self.remindPM = -1
+        self.blocked = False
 
-        # User can only issue commands after initialization
-
+    # User can only issue commands after initialization
     def canIssueCommand(self) -> bool:
         return self.status in [
             UserState.TEMP_DEFAULT,

@@ -1,3 +1,8 @@
+from ..stringConstants import StringConstants
+
+STRINGS = StringConstants().STRINGS
+
+
 class TelegramMarkup:
 
     # For reporting temperatures
@@ -11,7 +16,13 @@ class TelegramMarkup:
     ReminderPmKeyboard = {"keyboard": _hourListPm, "one_time_keyboard": True}
 
     GroupConfirmationKeyboard = {
-        "keyboard": [["That's right"], ["No it's not"]],
+        "keyboard": [STRINGS["group_keyboard_yes"], STRINGS["group_keyboard_no"]],
         "one_time_keyboard": True,
     }
 
+    @classmethod
+    def NameSelectionKeyboard(cls, names: list):
+        return {
+            "keyboard": names,
+            "one_time_keyboard": True,
+        }
