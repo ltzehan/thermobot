@@ -3,6 +3,7 @@
 #
 
 import logging
+import json
 from typing import NamedTuple
 from datetime import datetime, timedelta, timezone
 
@@ -13,6 +14,7 @@ from ..stringConstants import StringConstants
 from .user import User, UserState
 from .webhookUpdate import WebhookUpdate
 from .telegramMarkup import TelegramMarkup
+from ..temptakingWrapper import TemptakingWrapper
 
 STRINGS = StringConstants().STRINGS
 
@@ -56,15 +58,17 @@ class UpdateHandler:
 
         if self.update.text.startswith("/"):
             # User issued a command (does not depend on user state)
-            command = str.strip(self.update.text)
-            return self.parseCommand(command)
-
+            return self.handleCommand()
         else:
             # Pass to state machine
             return self.handleByState()
 
-    def parseCommand(self, command: str):
+    # Handles commands (text starting with "/")
+    def handleCommand(self):
 
+        command = str.strip(self.update.text)
+
+        # Only command user can issue before completing initialization
         if command == "/start":
             # Reset user state
             self.user.reset()
@@ -85,8 +89,6 @@ class UpdateHandler:
                 # Now wait for user to send temperature
                 self.user.status = UserState.TEMP_REPORT
                 self.user.put()
-                logger.error(self.user.status)
-                logger.error(self.user.key.id())
 
                 return self.update.makeReply(text, TelegramMarkup.TemperatureKeyboard)
 
@@ -115,5 +117,34 @@ class UpdateHandler:
         return self.update.makeReply(STRINGS["invalid_input"])
 
     def handleByState(self):
-        # TODO
+
+        state = self.user.status
+        if state == UserState.INIT_START:
+            # Get temptaking data
+            ttWrapper = TemptakingWrapper(self.update.text)
+            if not ttWrapper.isValid():
+                return self.update.makeReply(STRINGS["invalid_url"])
+
+            if ttWrapper.load():
+
+                self.user.groupName = ttWrapper.groupName
+                self.user.groupId = ttWrapper.groupId
+                self.user.groupMembers = json.dumps(ttWrapper.groupMembers)
+                self.user.status = UserState.INIT_CONFIRM_URL
+                self.user.put()
+
+                return self.update.makeReply(
+                    STRINGS["group_msg"].format(ttWrapper.groupName),
+                    markup=TelegramMarkup.GroupConfirmationKeyboard,
+                )
+
+            else:
+                # TODO Check if website is down
+                if False:
+                    return self.update.makeReply(
+                        STRINGS["status_offline_response"], reply=False
+                    )
+                else:
+                    return self.update.makeReply(STRINGS["website_error"], reply=False)
+
         return "TODO"

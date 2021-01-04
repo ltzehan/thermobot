@@ -10,8 +10,6 @@
   "SAF100": "<b>⚠ You have been mobilised for Temperature Monitoring Ops.</b>\nPlease enter your temptaking URL:\n\n<i>Format:</i>\n<pre>temptaking.ado.sg/group/&lt;code&gt;</pre>",
   "SAF100_2": "Please enter your temptaking URL again:\n\n<i>Format:</i>\n<pre>temptaking.ado.sg/group/&lt;code&gt;</pre>",
   "group_msg": "Group name: <b>{}</b>",
-  "group_keyboard_yes": "That's right",
-  "group_keyboard_no": "No it's not",
   "invalid_url": "<b>❌ This isn't a valid temptaking URL</b>\n\n<i>Expected format:</i>\n<pre>temptaking.ado.sg/group/&lt;code&gt;</pre>",
   "use_keyboard": "Please choose a reply from this keyboard:",
   "member_msg_1": "<i>Please enter your name:</i>\n",

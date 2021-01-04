@@ -4,7 +4,7 @@ from typing import List
 from flask import Flask, request, jsonify
 
 from .ndbMiddleware import NdbMiddleware
-from .apiWrapper import TelegramApiWrapper
+from .telegramWrapper import TelegramApiWrapper
 
 from .stringConstants import StringConstants
 from .model.webhookUpdate import WebhookUpdate

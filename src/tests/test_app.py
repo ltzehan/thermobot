@@ -8,6 +8,8 @@ from google.cloud import ndb
 from ..model.user import User, UserState
 from ..model.telegramMarkup import TelegramMarkup
 
+from .test_temptakingWrapper import TEST_URL
+
 # For comparing strings that have a format string for datetime
 # Datetime in testing environment and server need not be the same and honestly
 # is good enough for testing
@@ -151,4 +153,51 @@ class TestBot:
             context.clear_cache()
             user: User = userKey.get()
             assert user.status == UserState.REMIND_SET_AM
+
+        # No prior configuration
+        with self.ndbClient.context() as context:
+            userKey = self.createUser({"status": UserState.TEMP_DEFAULT})
+            update = self.createUpdate("/remind", userKey.id())
+
+            resp = self.sendToWebhook(update)
+            assert looseCompare(
+                resp.json()["text"],
+                self.STRINGS["reminder_not_configured"]
+                + self.STRINGS["reminder_change_config"].format("AM"),
+            )
+            assert resp.json()["reply_markup"] == TelegramMarkup.ReminderAmKeyboard
+
+            context.clear_cache()
+            user: User = userKey.get()
+            assert user.status == UserState.REMIND_SET_AM
+
+    # Tests handling of INIT_START
+    def test_INIT_START(self) -> ndb.Key:
+
+        # Test invalid URL
+        with self.ndbClient.context() as context:
+            userKey = self.createUser({"status": UserState.INIT_START})
+            update = self.createUpdate("https://temptaking.ado.sg/group", userKey.id())
+
+            resp = self.sendToWebhook(update)
+            assert resp.json()["text"] == self.STRINGS["invalid_url"]
+
+        with self.ndbClient.context() as context:
+            userKey = self.createUser({"status": UserState.INIT_START})
+            update = self.createUpdate(TEST_URL, userKey.id())
+
+            resp = self.sendToWebhook(update)
+            assert looseCompare(resp.json()["text"], self.STRINGS["group_msg"])
+            assert (
+                resp.json()["reply_markup"] == TelegramMarkup.GroupConfirmationKeyboard
+            )
+
+            context.clear_cache()
+            user: User = userKey.get()
+            assert user.status == UserState.INIT_CONFIRM_URL
+            assert user.groupId
+            assert user.groupName
+            assert user.groupMembers
+
+            return user.key
 
