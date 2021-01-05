@@ -30,6 +30,16 @@ class TelegramMarkup:
         "one_time_keyboard": True,
     }
 
+    PinConfirmationKeyboard = {
+        "keyboard": [[STRINGS["pin_keyboard_yes"]], [STRINGS["pin_keyboard_no"]],],
+        "one_time_keyboard": True,
+    }
+
+    SummaryKeyboard = {
+        "keyboard": [[STRINGS["pin_keyboard_yes"]], [STRINGS["pin_keyboard_no"]],],
+        "one_time_keyboard": True,
+    }
+
     @classmethod
     def NameSelectionKeyboard(cls, names: list):
         return {

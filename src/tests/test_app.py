@@ -498,3 +498,135 @@ class TestBot:
             assert resp.json()["text"] == STRINGS["use_keyboard"]
             assert resp.json()["reply_markup"] == TelegramMarkup.PinConfiguredKeyboard
             assert user.status == UserState.INIT_GET_PIN
+
+    # Test handling of INIT_CONFIRM_PIN
+    def test_INIT_CONFIRM_PIN(self):
+
+        # Minimal state required
+        def _createUser() -> ndb.Key:
+            return self.createUser(
+                {
+                    "status": UserState.INIT_CONFIRM_PIN,
+                    "pin": User.PIN_MEMBER_CONFIRMED,
+                }
+            )
+
+        # Tests valid PIN
+        with self.ndbClient.context() as context:
+            userKey = _createUser()
+            update = self.createUpdate("0000", userKey.id())
+
+            resp = self.sendToWebhook(update)
+
+            context.clear_cache()
+            user: User = userKey.get()
+
+            assert resp.json()["text"] == STRINGS["pin_msg_2"].format("0000")
+            assert resp.json()["reply_markup"] == TelegramMarkup.PinConfirmationKeyboard
+            assert user.pin == "0000"
+            assert user.status == UserState.INIT_CONFIRM_PIN_2
+
+        # Tests invalid PIN
+        with self.ndbClient.context() as context:
+            userKey = _createUser()
+            update = self.createUpdate("PIN0", userKey.id())
+
+            resp = self.sendToWebhook(update)
+
+            context.clear_cache()
+            user: User = userKey.get()
+
+            assert resp.json()["text"] == STRINGS["invalid_pin"]
+            assert user.pin == User.PIN_MEMBER_CONFIRMED
+            assert user.status == UserState.INIT_CONFIRM_PIN
+
+    # Test handling of INIT_CONFIRM_PIN_2
+    def test_INIT_CONFIRM_PIN_2(self):
+
+        # Tests PIN confirmed
+        with self.ndbClient.context() as context:
+            userKey = self.createUser({"status": UserState.INIT_CONFIRM_PIN_2})
+            update = self.createUpdate(STRINGS["pin_keyboard_yes"], userKey.id())
+
+            resp = self.sendToWebhook(update)
+
+            context.clear_cache()
+            user: User = userKey.get()
+
+            assert resp.json()["text"] == STRINGS["setup_summary"].format(
+                user.groupName, user.memberName, user.pin
+            )
+            assert resp.json()["reply_markup"] == TelegramMarkup.SummaryKeyboard
+            assert user.status == UserState.INIT_SUMMARY
+            assert user.groupMembers == None
+
+        # Tests wrong PIN given
+        with self.ndbClient.context() as context:
+            userKey = self.createUser({"status": UserState.INIT_CONFIRM_PIN_2})
+            update = self.createUpdate(STRINGS["pin_keyboard_no"], userKey.id())
+
+            resp = self.sendToWebhook(update)
+
+            context.clear_cache()
+            user: User = userKey.get()
+
+            assert resp.json()["text"] == STRINGS["pin_msg_3"]
+            assert user.status == UserState.INIT_GET_PIN
+
+        # Tests invalid response
+        with self.ndbClient.context() as context:
+            userKey = self.createUser({"status": UserState.INIT_CONFIRM_PIN_2})
+            update = self.createUpdate("invalid response", userKey.id())
+
+            resp = self.sendToWebhook(update)
+
+            context.clear_cache()
+            user: User = userKey.get()
+
+            assert resp.json()["text"] == STRINGS["use_keyboard"]
+            assert resp.json()["reply_markup"] == TelegramMarkup.PinConfirmationKeyboard
+            assert user.status == UserState.INIT_CONFIRM_PIN_2
+
+    # Test handling of INIT_SUMMARY:
+    def test_INIT_SUMMARY(self):
+
+        # Tests initialization OK
+        with self.ndbClient.context() as context:
+            userKey = self.createUser({"status": UserState.INIT_SUMMARY})
+            update = self.createUpdate(STRINGS["summary_keyboard_yes"], userKey.id())
+
+            resp = self.sendToWebhook(update)
+
+            context.clear_cache()
+            user: User = userKey.get()
+
+            # TODO Test startReminderWizard() separately
+            assert resp.json()["text"].startswith(STRINGS["reminder_not_configured"])
+            assert user.status == UserState.REMIND_SET_AM
+
+        # Tests initialization reset
+        with self.ndbClient.context() as context:
+            userKey = self.createUser({"status": UserState.INIT_SUMMARY})
+            update = self.createUpdate(STRINGS["summary_keyboard_no"], userKey.id())
+
+            resp = self.sendToWebhook(update)
+
+            context.clear_cache()
+            user: User = userKey.get()
+
+            assert resp.json()["text"] == STRINGS["SAF100"]
+            assert user.status == UserState.INIT_START
+
+        # Tests invalid response
+        with self.ndbClient.context() as context:
+            userKey = self.createUser({"status": UserState.INIT_SUMMARY})
+            update = self.createUpdate("invalid response", userKey.id())
+
+            resp = self.sendToWebhook(update)
+
+            context.clear_cache()
+            user: User = userKey.get()
+
+            assert resp.json()["text"] == STRINGS["use_keyboard"]
+            assert resp.json()["reply_markup"] == TelegramMarkup.SummaryKeyboard
+            assert user.status == UserState.INIT_SUMMARY

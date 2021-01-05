@@ -4,6 +4,7 @@
 
 import logging
 import json
+import re
 from typing import NamedTuple
 from datetime import datetime, timedelta, timezone
 
@@ -63,6 +64,28 @@ class UpdateHandler:
             # Pass to state machine
             return self.handleByState()
 
+    # Starts the reminder wizard
+    def startReminderWizard(self):
+        # TODO Write tests
+        # Configure reminders
+        if self.user.remindAM == -1 or self.user.remindPM == -1:
+            # Reminder not configured
+            text = STRINGS["reminder_not_configured"]
+        else:
+            # Show existing configuration
+            currentAm, currentPm = self.user.remindAM, self.user.remindPM
+            text = STRINGS["reminder_existing_config"].format(
+                f"{currentAm:02}:01", f"{currentPm:02}:01"
+            )
+
+        text += STRINGS["reminder_change_config"].format("AM")
+
+        # Now waiting for user to send AM reminder time
+        self.user.status = UserState.REMIND_SET_AM
+        self.user.put()
+
+        return self.update.makeReply(text, TelegramMarkup.ReminderAmKeyboard)
+
     # Handles commands (text starting with "/")
     def handleCommand(self):
 
@@ -93,25 +116,7 @@ class UpdateHandler:
                 return self.update.makeReply(text, TelegramMarkup.TemperatureKeyboard)
 
             elif command == "/remind":
-                # TODO Write tests
-                # Configure reminders
-                if self.user.remindAM == -1 or self.user.remindPM == -1:
-                    # Reminder not configured
-                    text = STRINGS["reminder_not_configured"]
-                else:
-                    # Show existing configuration
-                    currentAm, currentPm = self.user.remindAM, self.user.remindPM
-                    text = STRINGS["reminder_existing_config"].format(
-                        f"{currentAm:02}:01", f"{currentPm:02}:01"
-                    )
-
-                text += STRINGS["reminder_change_config"].format("AM")
-
-                # Now waiting for user to send AM reminder time
-                self.user.status = UserState.REMIND_SET_AM
-                self.user.put()
-
-                return self.update.makeReply(text, TelegramMarkup.ReminderAmKeyboard)
+                return self.startReminderWizard()
 
         # TODO write test
         return self.update.makeReply(STRINGS["invalid_input"])
@@ -319,6 +324,83 @@ class UpdateHandler:
                     STRINGS["use_keyboard"],
                     markup=TelegramMarkup.MemberConfirmationKeyboard,
                     reply=False,
+                )
+
+        # User to confirm PIN
+        elif state == UserState.INIT_CONFIRM_PIN:
+
+            matches = re.findall(r"^\d{4}$", str.strip(self.update.text))
+
+            # Valid PIN
+            if len(matches) > 0:
+
+                pin = matches[0]
+                text = STRINGS["pin_msg_2"].format(pin)
+
+                self.user.status = UserState.INIT_CONFIRM_PIN_2
+                self.user.pin = pin
+                self.user.put()
+
+                return self.update.makeReply(
+                    text, markup=TelegramMarkup.PinConfirmationKeyboard, reply=False
+                )
+
+            else:
+                return self.update.makeReply(STRINGS["invalid_pin"])
+
+        # User to confirm PIN again
+        elif state == UserState.INIT_CONFIRM_PIN_2:
+
+            # User confirms correct PIN
+            if self.update.text == STRINGS["pin_keyboard_yes"]:
+
+                text = STRINGS["setup_summary"].format(
+                    self.user.groupName, self.user.memberName, self.user.pin
+                )
+
+                self.user.status = UserState.INIT_SUMMARY
+                self.user.groupMembers = None
+                self.user.put()
+
+                # TODO notify admins
+
+                return self.update.makeReply(
+                    text, markup=TelegramMarkup.SummaryKeyboard, reply=False
+                )
+
+            elif self.update.text == STRINGS["pin_keyboard_no"]:
+                # Ask for PIN
+                self.user.status = UserState.INIT_GET_PIN
+                self.user.put()
+
+                return self.update.makeReply(STRINGS["pin_msg_3"], reply=False)
+
+            else:
+                return self.update.makeReply(
+                    STRINGS["use_keyboard"],
+                    markup=TelegramMarkup.PinConfirmationKeyboard,
+                )
+
+        # User to confirm summary of initialization
+        elif state == UserState.INIT_SUMMARY:
+
+            # Correct details
+            if self.update.text == STRINGS["summary_keyboard_no"]:
+
+                # Reset state right to the beginning
+                self.user.reset()
+                self.user.put()
+
+                return self.update.makeReply(STRINGS["SAF100"], reply=False)
+
+            elif self.update.text == STRINGS["summary_keyboard_yes"]:
+
+                return self.startReminderWizard()
+
+            # Invalid response
+            else:
+                return self.update.makeReply(
+                    STRINGS["use_keyboard"], markup=TelegramMarkup.SummaryKeyboard,
                 )
 
         return "TODO"

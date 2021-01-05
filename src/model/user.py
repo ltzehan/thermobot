@@ -2,8 +2,6 @@
 #   Cloud NDB entity for handling user
 #
 
-import re
-
 from google.cloud import ndb
 
 # The string enum values are inherited for back-compatability reasons
@@ -15,7 +13,8 @@ class UserState:
     INIT_GET_NAME = "3"
     INIT_GET_PIN = "4"
     INIT_CONFIRM_PIN = "5"
-    # TODO
+    INIT_CONFIRM_PIN_2 = "6"
+    INIT_SUMMARY = "7"
 
     # Default state after configuration
     TEMP_DEFAULT = "endgame 1"
