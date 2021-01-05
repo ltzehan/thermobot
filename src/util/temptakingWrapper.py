@@ -9,6 +9,7 @@ logger = logging.getLogger(__name__)
 class TemptakingWrapper:
 
     URL_PATTERN = r"temptaking\.ado\.sg/group/.*"
+    BASE_URL = "https://temptaking.ado.sg/group/"
 
     def __init__(self, groupUrl: str):
         self._isValid = False

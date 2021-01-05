@@ -1,7 +1,18 @@
 from ..util.temptakingWrapper import TemptakingWrapper
 
 TEST_URL = "https://temptaking.ado.sg/group/49c22125544196a0ce745f504bd0608a"
+TEST_GROUPID = "49c22125544196a0ce745f504bd0608a"
 TEST_GROUPNAME = "thermobot-test"
+
+# Test user with no PIN
+TEST_MEMBER_NOPIN = {"id": "14770373", "identifier": "thermobot-nopin", "hasPin": False}
+
+# Test user with PIN set
+TEST_MEMBER_PINSET = {
+    "id": "14717782",
+    "identifier": "thermobot-pinset",
+    "hasPin": True,
+}
 
 
 class TestTemptakingWrapper:

@@ -2,6 +2,8 @@
 #   Cloud NDB entity for handling user
 #
 
+import re
+
 from google.cloud import ndb
 
 # The string enum values are inherited for back-compatability reasons
@@ -12,6 +14,7 @@ class UserState:
     INIT_CONFIRM_URL = "2"
     INIT_GET_NAME = "3"
     INIT_GET_PIN = "4"
+    INIT_CONFIRM_PIN = "5"
     # TODO
 
     # Default state after configuration
@@ -35,6 +38,7 @@ class UserState:
     # ]
 
 
+# Some fields are unused but their logic is maintained for back-compatability
 class User(ndb.Model):
     # Currently unused
     firstName = ndb.StringProperty()
@@ -49,6 +53,10 @@ class User(ndb.Model):
 
     memberName = ndb.StringProperty()
     memberId = ndb.StringProperty()
+    # This contains a PIN but may also contain certain strings values
+    # "False"/"True": set from hasPin property of scraped data
+    # "no pin": set by bot after user has confirmed their name and is told to set a PIN
+    PIN_MEMBER_CONFIRMED = "no pin"
     pin = ndb.StringProperty()
 
     # Last recorded temperature

@@ -116,6 +116,16 @@ class UpdateHandler:
         # TODO write test
         return self.update.makeReply(STRINGS["invalid_input"])
 
+    # Checks if error is caused by temptaking website being offline
+    def handleTemptakingError(self):
+        # TODO Check if website is down
+        if False:
+            return self.update.makeReply(
+                STRINGS["status_offline_response"], reply=False
+            )
+        else:
+            return self.update.makeReply(STRINGS["website_error"], reply=False)
+
     # Parses the scraped data of group members and sends a reply asking the user to select their name
     def queryMemberName(self):
         groupMembers: list = json.loads(self.user.groupMembers)
@@ -142,8 +152,9 @@ class UpdateHandler:
     def handleByState(self):
 
         state = self.user.status
+
+        # Get temptaking data
         if state == UserState.INIT_START:
-            # Get temptaking data
 
             ttWrapper = TemptakingWrapper(self.update.text)
             if not ttWrapper.isValid():
@@ -163,16 +174,10 @@ class UpdateHandler:
                 )
 
             else:
-                # TODO Check if website is down
-                if False:
-                    return self.update.makeReply(
-                        STRINGS["status_offline_response"], reply=False
-                    )
-                else:
-                    return self.update.makeReply(STRINGS["website_error"], reply=False)
+                return self.handleTemptakingError()
 
+        # User to confirm group URL
         elif state == UserState.INIT_CONFIRM_URL:
-            # User to confirm group URL
 
             if self.update.text == STRINGS["group_keyboard_yes"]:
 
@@ -181,14 +186,15 @@ class UpdateHandler:
 
                 return self.queryMemberName()
 
+            # User indicated wrong URL
             elif self.update.text == STRINGS["group_keyboard_no"]:
-                # User indicated wrong URL
                 # Reset user to previous state to reenter group URL
                 self.user.reset()
                 self.user.status = UserState.INIT_START
                 self.user.put()
 
                 return self.update.makeReply(STRINGS["SAF100_2"], reply=False)
+
             else:
                 return self.update.makeReply(
                     STRINGS["use_keyboard"],
@@ -196,8 +202,8 @@ class UpdateHandler:
                     reply=False,
                 )
 
-        elif self.user.status == UserState.INIT_GET_NAME:
-            # User to enter their name
+        # User to enter their name
+        elif state == UserState.INIT_GET_NAME:
 
             groupMembers = json.loads(self.user.groupMembers)
 
@@ -220,5 +226,99 @@ class UpdateHandler:
             return self.update.makeReply(
                 text, markup=TelegramMarkup.MemberConfirmationKeyboard, reply=False
             )
+
+        # User to enter PIN
+        elif state == UserState.INIT_GET_PIN:
+
+            # User has previously confirmed member name and is returning to set PIN
+            if self.user.pin == User.PIN_MEMBER_CONFIRMED:
+
+                # User has supposedly configured a PIN after being told to
+                if self.update.text == STRINGS["pin_keyboard"]:
+
+                    groupUrl = TemptakingWrapper.BASE_URL + self.user.groupId
+                    ttWrapper = TemptakingWrapper(groupUrl)
+
+                    if ttWrapper.load():
+
+                        groupMembers = ttWrapper.groupMembers
+                        try:
+                            idx = [x["identifier"] for x in groupMembers].index(
+                                self.user.memberName
+                            )
+
+                            # User has a configured PIN now
+                            if groupMembers[idx]["hasPin"]:
+                                self.user.status = UserState.INIT_CONFIRM_PIN
+                                self.user.put()
+
+                                return self.update.makeReply(
+                                    STRINGS["pin_msg_1"], reply=False
+                                )
+
+                            # User is a liar
+                            else:
+                                text = STRINGS["set_pin_2"].format(self.user.groupId)
+                                return self.update.makeReply(
+                                    text,
+                                    markup=TelegramMarkup.PinConfiguredKeyboard,
+                                    reply=False,
+                                )
+
+                        except ValueError:
+                            # User has somehow ceased to exist
+                            # This could be a result of user changing groups or their member names
+                            # and is easier to just start from a blank slate
+                            self.user.reset()
+                            self.user.put()
+
+                            return self.update.makeReply(
+                                STRINGS["fatal_error"], reply=False
+                            )
+
+                    else:
+                        return self.handleTemptakingError()
+
+                else:
+                    return self.update.makeReply(
+                        STRINGS["use_keyboard"],
+                        markup=TelegramMarkup.PinConfiguredKeyboard,
+                        reply=False,
+                    )
+
+            # Otherwise user has not yet confirmed their name
+            if self.update.text == STRINGS["member_keyboard_no"]:
+                # Ask again
+                self.user.status = UserState.INIT_GET_NAME
+                self.user.put()
+
+                return self.queryMemberName()
+
+            elif self.update.text == STRINGS["member_keyboard_yes"]:
+
+                if self.user.pin == "True":
+                    self.user.status = UserState.INIT_CONFIRM_PIN
+                    self.user.pin = User.PIN_MEMBER_CONFIRMED
+                    self.user.put()
+
+                    return self.update.makeReply(STRINGS["pin_msg_1"], reply=False)
+
+                else:
+                    # Request user to set PIN first
+                    text = STRINGS["set_pin_1"].format(self.user.groupId)
+
+                    self.user.pin = User.PIN_MEMBER_CONFIRMED
+                    self.user.put()
+
+                    return self.update.makeReply(
+                        text, markup=TelegramMarkup.PinConfiguredKeyboard, reply=False
+                    )
+
+            else:
+                return self.update.makeReply(
+                    STRINGS["use_keyboard"],
+                    markup=TelegramMarkup.MemberConfirmationKeyboard,
+                    reply=False,
+                )
 
         return "TODO"
