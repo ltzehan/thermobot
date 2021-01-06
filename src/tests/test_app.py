@@ -29,7 +29,9 @@ def looseCompare(dateStr: str, fmtStr: str):
     return True
 
 
-class TestBot:
+# Base class with useful methods for implementing test cases
+class BaseTestClass:
+
     # Initialization for tests
     def setup_class(self):
 
@@ -74,11 +76,13 @@ class TestBot:
 
         return user.key
 
-    # Creates new user
 
-    #
-    #   Test cases
-    #
+#
+#   Test cases
+#
+
+
+class TestApp(BaseTestClass):
 
     # Tests error handling of empty messages
     def test_emptyMessage(self):
@@ -102,6 +106,9 @@ class TestBot:
 
         resp = self.sendToWebhook(update)
         assert resp.json()["text"] == STRINGS["no_text_error"]
+
+
+class TestUpdateHandler(BaseTestClass):
 
     # Tests invalid command handling
     def test_invalidCommand(self):
@@ -131,9 +138,8 @@ class TestBot:
             user: User = userKey.get()
             assert user.status == UserState.TEMP_REPORT
 
-    # Tests /remind command
-    def test_remindCommand(self):
-        # Preconfigured user
+    # Tests /remind command for preconfigured user
+    def test_remindCommand_withConfig(self):
         with self.ndbClient.context() as context:
             userKey = self.createUser(
                 {"status": UserState.TEMP_DEFAULT, "remindAM": 8, "remindPM": 15}
@@ -152,7 +158,8 @@ class TestBot:
 
             assert user.status == UserState.REMIND_SET_AM
 
-        # No prior configuration
+    # Tests /remind command for user with no prior configuration
+    def test_remindCommand_noConfig(self):
         with self.ndbClient.context() as context:
             userKey = self.createUser({"status": UserState.TEMP_DEFAULT})
             update = self.createUpdate("/remind", userKey.id())
@@ -169,39 +176,8 @@ class TestBot:
             user: User = userKey.get()
             assert user.status == UserState.REMIND_SET_AM
 
-    # Tests handling of INIT_START
-    def test_INIT_START(self):
-
-        # Test invalid URL
-        with self.ndbClient.context() as context:
-            userKey = self.createUser({"status": UserState.INIT_START})
-            update = self.createUpdate("https://temptaking.ado.sg/group", userKey.id())
-
-            resp = self.sendToWebhook(update)
-            assert resp.json()["text"] == STRINGS["invalid_url"]
-
-        with self.ndbClient.context() as context:
-            userKey = self.createUser({"status": UserState.INIT_START})
-            update = self.createUpdate(TEST_URL, userKey.id())
-
-            resp = self.sendToWebhook(update)
-
-            context.clear_cache()
-            user: User = userKey.get()
-
-            assert resp.json()["text"] == STRINGS["group_msg"].format(user.groupName)
-            assert (
-                resp.json()["reply_markup"] == TelegramMarkup.GroupConfirmationKeyboard
-            )
-
-            assert user.status == UserState.INIT_CONFIRM_URL
-            assert user.groupName == TEST_GROUPNAME
-            assert user.groupMembers
-
-    # Tests querying of user for their name
+    # Tests querying of user for their name (< 300 members)
     def test_queryMemberName(self):
-
-        # Test correct group URL response (<300 members)
         with self.ndbClient.context() as context:
             userKey = self.createUser(
                 {
@@ -227,7 +203,8 @@ class TestBot:
             )
             assert user.status == UserState.INIT_GET_NAME
 
-        # Test correct group URL response (member overflow)
+    # Test correct group URL response (member overflow)
+    def test_queryMemberName_overflow(self):
         with self.ndbClient.context() as context:
             userKey = self.createUser(
                 {
@@ -255,25 +232,60 @@ class TestBot:
             user: User = userKey.get()
             assert user.status == UserState.INIT_GET_NAME
 
-    # Tests handling of INIT_CONFIRM_URL
-    def test_INIT_CONFIRM_URL(self):
 
-        # Minimal state required
-        def _createUser() -> ndb.Key:
-            return self.createUser(
-                {
-                    "status": UserState.INIT_CONFIRM_URL,
-                    "groupId": TEST_GROUPID,
-                    "groupName": TEST_GROUPNAME,
-                    "groupMembers": json.dumps(
-                        [{"id": "TEST_MEMBERID", "identifier": "TEST_MEMBERNAME",}]
-                    ),
-                }
+# Tests handling of INIT_START
+class TestInitStart(BaseTestClass):
+
+    # Test invalid URL given
+    def test_invalidUrl(self):
+        with self.ndbClient.context() as context:
+            userKey = self.createUser({"status": UserState.INIT_START})
+            update = self.createUpdate("https://temptaking.ado.sg/group", userKey.id())
+
+            resp = self.sendToWebhook(update)
+            assert resp.json()["text"] == STRINGS["invalid_url"]
+
+    # Test valid URL given
+    def test_validUrl(self):
+        with self.ndbClient.context() as context:
+            userKey = self.createUser({"status": UserState.INIT_START})
+            update = self.createUpdate(TEST_URL, userKey.id())
+
+            resp = self.sendToWebhook(update)
+
+            context.clear_cache()
+            user: User = userKey.get()
+
+            assert resp.json()["text"] == STRINGS["group_msg"].format(user.groupName)
+            assert (
+                resp.json()["reply_markup"] == TelegramMarkup.GroupConfirmationKeyboard
             )
 
-        # Test wrong group URL response
+            assert user.status == UserState.INIT_CONFIRM_URL
+            assert user.groupName == TEST_GROUPNAME
+            assert user.groupMembers
+
+
+# Tests handling of INIT_CONFIRM_URL
+class TestInitConfirmUrl(BaseTestClass):
+
+    # Minimal state required
+    def _createUser(self) -> ndb.Key:
+        return self.createUser(
+            {
+                "status": UserState.INIT_CONFIRM_URL,
+                "groupId": TEST_GROUPID,
+                "groupName": TEST_GROUPNAME,
+                "groupMembers": json.dumps(
+                    [{"id": "TEST_MEMBERID", "identifier": "TEST_MEMBERNAME",}]
+                ),
+            }
+        )
+
+    # Test wrong group URL response
+    def test_wrongUrl(self):
         with self.ndbClient.context() as context:
-            userKey = _createUser()
+            userKey = self._createUser()
             update = self.createUpdate(STRINGS["group_keyboard_no"], userKey.id())
 
             resp = self.sendToWebhook(update)
@@ -283,9 +295,10 @@ class TestBot:
             user: User = userKey.get()
             assert user.status == UserState.INIT_START
 
-        # Test unexpected response (not in keyboard)
+    # Test invalid response (not in keyboard)
+    def test_invalidResponse(self):
         with self.ndbClient.context() as context:
-            userKey = _createUser()
+            userKey = self._createUser()
             update = self.createUpdate(
                 "I don't know how to press buttons", userKey.id()
             )
@@ -300,31 +313,33 @@ class TestBot:
             user: User = userKey.get()
             assert user.status == UserState.INIT_CONFIRM_URL
 
-    # Tests handling of INIT_GET_NAME
-    def test_INIT_GET_NAME(self):
 
-        # Minimal state required
-        def _createUser() -> ndb.Key:
-            return self.createUser(
-                {
-                    "status": UserState.INIT_GET_NAME,
-                    "groupId": TEST_GROUPID,
-                    "groupName": TEST_GROUPNAME,
-                    "groupMembers": json.dumps(
-                        [
-                            {
-                                "id": "TEST_MEMBERID",
-                                "identifier": "TEST_MEMBERNAME",
-                                "hasPin": "True",
-                            }
-                        ]
-                    ),
-                }
-            )
+# Tests handling of INIT_GET_NAME
+class TestInitGetName(BaseTestClass):
 
-        # Test valid name given
+    # Minimal state required
+    def _createUser(self) -> ndb.Key:
+        return self.createUser(
+            {
+                "status": UserState.INIT_GET_NAME,
+                "groupId": TEST_GROUPID,
+                "groupName": TEST_GROUPNAME,
+                "groupMembers": json.dumps(
+                    [
+                        {
+                            "id": "TEST_MEMBERID",
+                            "identifier": "TEST_MEMBERNAME",
+                            "hasPin": "True",
+                        }
+                    ]
+                ),
+            }
+        )
+
+    # Test valid name given
+    def test_validName(self):
         with self.ndbClient.context() as context:
-            userKey = _createUser()
+            userKey = self._createUser()
             update = self.createUpdate("TEST_MEMBERNAME", userKey.id())
 
             resp = self.sendToWebhook(update)
@@ -343,9 +358,10 @@ class TestBot:
             assert user.memberId == "TEST_MEMBERID"
             assert user.memberName == "TEST_MEMBERNAME"
 
-        # Test invalid name given
+    # Test invalid name given
+    def test_invalidName(self):
         with self.ndbClient.context() as context:
-            userKey = _createUser()
+            userKey = self._createUser()
             update = self.createUpdate("TEST_FAIL", userKey.id())
 
             resp = self.sendToWebhook(update)
@@ -357,32 +373,34 @@ class TestBot:
             assert resp.json()["text"].startswith(STRINGS["member_msg_1"])
             assert user.status == UserState.INIT_GET_NAME
 
-    # Test handling of INIT_GET_PIN
-    def test_INIT_GET_PIN(self):
 
-        # Minimal state required
-        def _createUser(hasPin: bool, pinState: str) -> ndb.Key:
-            return self.createUser(
-                {
-                    "status": UserState.INIT_GET_PIN,
-                    "groupId": TEST_GROUPID,
-                    "groupName": TEST_GROUPNAME,
-                    "groupMembers": json.dumps(
-                        [
-                            {
-                                "id": "TEST_MEMBERID",
-                                "identifier": "TEST_MEMBERNAME",
-                                "hasPin": hasPin,
-                            }
-                        ]
-                    ),
-                    "pin": pinState,
-                }
-            )
+# Test handling of INIT_GET_PIN
+class TestInitGetPin(BaseTestClass):
 
-        # Tests incorrect name
+    # Minimal state required
+    def _createUser(self, hasPin: bool, pinState: str) -> ndb.Key:
+        return self.createUser(
+            {
+                "status": UserState.INIT_GET_PIN,
+                "groupId": TEST_GROUPID,
+                "groupName": TEST_GROUPNAME,
+                "groupMembers": json.dumps(
+                    [
+                        {
+                            "id": "TEST_MEMBERID",
+                            "identifier": "TEST_MEMBERNAME",
+                            "hasPin": hasPin,
+                        }
+                    ]
+                ),
+                "pin": pinState,
+            }
+        )
+
+    # Tests incorrect name
+    def test_incorrectName(self):
         with self.ndbClient.context() as context:
-            userKey = _createUser(hasPin=True, pinState="True")
+            userKey = self._createUser(hasPin=True, pinState="True")
             update = self.createUpdate(STRINGS["member_keyboard_no"], userKey.id())
 
             resp = self.sendToWebhook(update)
@@ -395,9 +413,10 @@ class TestBot:
             assert user.status == UserState.INIT_GET_NAME
             assert user.pin != User.PIN_MEMBER_CONFIRMED
 
-        # Tests correct name and PIN already set
+    # Tests correct name and PIN already set
+    def test_correctName_pinSet(self):
         with self.ndbClient.context() as context:
-            userKey = _createUser(hasPin=True, pinState="True")
+            userKey = self._createUser(hasPin=True, pinState="True")
             update = self.createUpdate(STRINGS["member_keyboard_yes"], userKey.id())
 
             resp = self.sendToWebhook(update)
@@ -409,9 +428,10 @@ class TestBot:
             assert user.status == UserState.INIT_CONFIRM_PIN
             assert user.pin == User.PIN_MEMBER_CONFIRMED
 
-        # Tests correct name but PIN not yet set
+    # Tests correct name but PIN not yet set
+    def test_correctName_noPin(self):
         with self.ndbClient.context() as context:
-            userKey = _createUser(hasPin=False, pinState="False")
+            userKey = self._createUser(hasPin=False, pinState="False")
             update = self.createUpdate(STRINGS["member_keyboard_yes"], userKey.id())
 
             resp = self.sendToWebhook(update)
@@ -424,9 +444,10 @@ class TestBot:
             assert user.status == UserState.INIT_GET_PIN
             assert user.pin == User.PIN_MEMBER_CONFIRMED
 
-        # Tests invalid member confirmation message
+    # Tests invalid response (not in keyboard)
+    def test_invalidResponse(self):
         with self.ndbClient.context() as context:
-            userKey = _createUser(hasPin=True, pinState="True")
+            userKey = self._createUser(hasPin=True, pinState="True")
             update = self.createUpdate("invalid response", userKey.id())
 
             resp = self.sendToWebhook(update)
@@ -441,26 +462,28 @@ class TestBot:
             assert user.status == UserState.INIT_GET_PIN
             assert user.pin != User.PIN_MEMBER_CONFIRMED
 
-    # Test handling of INIT_GET_PIN for users who did not have a configured PIN
-    def test_INIT_GET_PIN_2(self):
 
-        # Minimal state required
-        def _createUser(member) -> ndb.Key:
-            return self.createUser(
-                {
-                    "status": UserState.INIT_GET_PIN,
-                    "groupId": TEST_GROUPID,
-                    "groupName": TEST_GROUPNAME,
-                    "groupMembers": json.dumps([TEST_MEMBER_NOPIN, TEST_MEMBER_PINSET]),
-                    "memberId": member["id"],
-                    "memberName": member["identifier"],
-                    "pin": User.PIN_MEMBER_CONFIRMED,
-                }
-            )
+# Test handling of INIT_GET_PIN for users who did not have a configured PIN
+class TestInitGetPin_PinNotSet(BaseTestClass):
 
-        # User has configured a PIN
+    # Minimal state required
+    def _createUser(self, member) -> ndb.Key:
+        return self.createUser(
+            {
+                "status": UserState.INIT_GET_PIN,
+                "groupId": TEST_GROUPID,
+                "groupName": TEST_GROUPNAME,
+                "groupMembers": json.dumps([TEST_MEMBER_NOPIN, TEST_MEMBER_PINSET]),
+                "memberId": member["id"],
+                "memberName": member["identifier"],
+                "pin": User.PIN_MEMBER_CONFIRMED,
+            }
+        )
+
+    # User has configured a PIN
+    def test_hasConfigPin(self):
         with self.ndbClient.context() as context:
-            userKey = _createUser(TEST_MEMBER_PINSET)
+            userKey = self._createUser(TEST_MEMBER_PINSET)
             update = self.createUpdate(STRINGS["pin_keyboard"], userKey.id())
 
             resp = self.sendToWebhook(update)
@@ -471,9 +494,10 @@ class TestBot:
             assert resp.json()["text"] == STRINGS["pin_msg_1"]
             assert user.status == UserState.INIT_CONFIRM_PIN
 
-        # User still has no PIN
+    # User still has no PIN
+    def test_hasNotConfigPin(self):
         with self.ndbClient.context() as context:
-            userKey = _createUser(TEST_MEMBER_NOPIN)
+            userKey = self._createUser(TEST_MEMBER_NOPIN)
             update = self.createUpdate(STRINGS["pin_keyboard"], userKey.id())
 
             resp = self.sendToWebhook(update)
@@ -485,9 +509,10 @@ class TestBot:
             assert resp.json()["reply_markup"] == TelegramMarkup.PinConfiguredKeyboard
             assert user.status == UserState.INIT_GET_PIN
 
-        # Tests invalid message
+    # Tests invalid response (not in keyboard)
+    def test_invalidResponse(self):
         with self.ndbClient.context() as context:
-            userKey = _createUser(TEST_MEMBER_NOPIN)
+            userKey = self._createUser(TEST_MEMBER_NOPIN)
             update = self.createUpdate("invalid response", userKey.id())
 
             resp = self.sendToWebhook(update)
@@ -499,21 +524,20 @@ class TestBot:
             assert resp.json()["reply_markup"] == TelegramMarkup.PinConfiguredKeyboard
             assert user.status == UserState.INIT_GET_PIN
 
-    # Test handling of INIT_CONFIRM_PIN
-    def test_INIT_CONFIRM_PIN(self):
 
-        # Minimal state required
-        def _createUser() -> ndb.Key:
-            return self.createUser(
-                {
-                    "status": UserState.INIT_CONFIRM_PIN,
-                    "pin": User.PIN_MEMBER_CONFIRMED,
-                }
-            )
+# Test handling of INIT_CONFIRM_PIN
+class TestInitConfirmPin(BaseTestClass):
 
-        # Tests valid PIN
+    # Minimal state required
+    def _createUser(self) -> ndb.Key:
+        return self.createUser(
+            {"status": UserState.INIT_CONFIRM_PIN, "pin": User.PIN_MEMBER_CONFIRMED,}
+        )
+
+    # Tests valid PIN
+    def test_validPin(self):
         with self.ndbClient.context() as context:
-            userKey = _createUser()
+            userKey = self._createUser()
             update = self.createUpdate("0000", userKey.id())
 
             resp = self.sendToWebhook(update)
@@ -526,9 +550,10 @@ class TestBot:
             assert user.pin == "0000"
             assert user.status == UserState.INIT_CONFIRM_PIN_2
 
-        # Tests invalid PIN
+    # Tests invalid PIN
+    def test_invalidPin(self):
         with self.ndbClient.context() as context:
-            userKey = _createUser()
+            userKey = self._createUser()
             update = self.createUpdate("PIN0", userKey.id())
 
             resp = self.sendToWebhook(update)
@@ -540,10 +565,12 @@ class TestBot:
             assert user.pin == User.PIN_MEMBER_CONFIRMED
             assert user.status == UserState.INIT_CONFIRM_PIN
 
-    # Test handling of INIT_CONFIRM_PIN_2
-    def test_INIT_CONFIRM_PIN_2(self):
 
-        # Tests PIN confirmed
+# Test handling of INIT_CONFIRM_PIN_2
+class TestInitConfirmPin2(BaseTestClass):
+
+    # Tests PIN confirmed
+    def test_pinConfirmed(self):
         with self.ndbClient.context() as context:
             userKey = self.createUser({"status": UserState.INIT_CONFIRM_PIN_2})
             update = self.createUpdate(STRINGS["pin_keyboard_yes"], userKey.id())
@@ -560,7 +587,8 @@ class TestBot:
             assert user.status == UserState.INIT_SUMMARY
             assert user.groupMembers == None
 
-        # Tests wrong PIN given
+    # Tests wrong PIN given
+    def test_pinWrong(self):
         with self.ndbClient.context() as context:
             userKey = self.createUser({"status": UserState.INIT_CONFIRM_PIN_2})
             update = self.createUpdate(STRINGS["pin_keyboard_no"], userKey.id())
@@ -573,7 +601,8 @@ class TestBot:
             assert resp.json()["text"] == STRINGS["pin_msg_3"]
             assert user.status == UserState.INIT_GET_PIN
 
-        # Tests invalid response
+    # Tests invalid response (not in keyboard)
+    def test_invalidResponse(self):
         with self.ndbClient.context() as context:
             userKey = self.createUser({"status": UserState.INIT_CONFIRM_PIN_2})
             update = self.createUpdate("invalid response", userKey.id())
@@ -587,10 +616,12 @@ class TestBot:
             assert resp.json()["reply_markup"] == TelegramMarkup.PinConfirmationKeyboard
             assert user.status == UserState.INIT_CONFIRM_PIN_2
 
-    # Test handling of INIT_SUMMARY:
-    def test_INIT_SUMMARY(self):
 
-        # Tests initialization OK
+# Test handling of INIT_SUMMARY:
+class TestInitSummary(BaseTestClass):
+
+    # Tests initialization OK
+    def test_ok(self):
         with self.ndbClient.context() as context:
             userKey = self.createUser({"status": UserState.INIT_SUMMARY})
             update = self.createUpdate(STRINGS["summary_keyboard_yes"], userKey.id())
@@ -604,7 +635,8 @@ class TestBot:
             assert resp.json()["text"].startswith(STRINGS["reminder_not_configured"])
             assert user.status == UserState.REMIND_SET_AM
 
-        # Tests initialization reset
+    # Tests initialization reset
+    def test_reset(self):
         with self.ndbClient.context() as context:
             userKey = self.createUser({"status": UserState.INIT_SUMMARY})
             update = self.createUpdate(STRINGS["summary_keyboard_no"], userKey.id())
@@ -617,7 +649,8 @@ class TestBot:
             assert resp.json()["text"] == STRINGS["SAF100"]
             assert user.status == UserState.INIT_START
 
-        # Tests invalid response
+    # Tests invalid response (not in keyboard)
+    def test_invalidResponse(self):
         with self.ndbClient.context() as context:
             userKey = self.createUser({"status": UserState.INIT_SUMMARY})
             update = self.createUpdate("invalid response", userKey.id())
@@ -631,10 +664,12 @@ class TestBot:
             assert resp.json()["reply_markup"] == TelegramMarkup.SummaryKeyboard
             assert user.status == UserState.INIT_SUMMARY
 
-    # Test handling of REMIND_SET_AM:
-    def test_REMIND_SET_AM(self):
 
-        # Tests valid AM time sent
+# Test handling of REMIND_SET_AM:
+class TestRemindSetAm(BaseTestClass):
+
+    # Tests valid AM time sent
+    def test_validTime(self):
         with self.ndbClient.context() as context:
             userKey = self.createUser({"status": UserState.REMIND_SET_AM})
             update = self.createUpdate("11:01", userKey.id())
@@ -649,7 +684,8 @@ class TestBot:
             assert user.status == UserState.REMIND_SET_PM
             assert user.remindAM == 11
 
-        # Tests invalid AM time sent
+    # Tests invalid AM time sent
+    def test_invalidTime(self):
         with self.ndbClient.context() as context:
             userKey = self.createUser({"status": UserState.REMIND_SET_AM})
             update = self.createUpdate("12:01", userKey.id())
@@ -664,10 +700,12 @@ class TestBot:
             assert user.status == UserState.REMIND_SET_AM
             assert user.remindAM == -1
 
-    # Test handling of REMIND_SET_PM:
-    def test_REMIND_SET_PM(self):
 
-        # Tests valid PM time sent
+# Test handling of REMIND_SET_PM:
+class TestRemindSetPm(BaseTestClass):
+
+    # Tests valid PM time sent
+    def test_validTime(self):
         with self.ndbClient.context() as context:
             userKey = self.createUser({"status": UserState.REMIND_SET_PM})
             update = self.createUpdate("23:01", userKey.id())
@@ -683,7 +721,8 @@ class TestBot:
             assert user.status == UserState.TEMP_DEFAULT
             assert user.remindPM == 23
 
-        # Tests invalid PM time sent
+    # Tests invalid PM time sent
+    def test_invalidTime(self):
         with self.ndbClient.context() as context:
             userKey = self.createUser({"status": UserState.REMIND_SET_PM})
             update = self.createUpdate("00:01", userKey.id())
