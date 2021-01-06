@@ -630,3 +630,70 @@ class TestBot:
             assert resp.json()["text"] == STRINGS["use_keyboard"]
             assert resp.json()["reply_markup"] == TelegramMarkup.SummaryKeyboard
             assert user.status == UserState.INIT_SUMMARY
+
+    # Test handling of REMIND_SET_AM:
+    def test_REMIND_SET_AM(self):
+
+        # Tests valid AM time sent
+        with self.ndbClient.context() as context:
+            userKey = self.createUser({"status": UserState.REMIND_SET_AM})
+            update = self.createUpdate("11:01", userKey.id())
+
+            resp = self.sendToWebhook(update)
+
+            context.clear_cache()
+            user: User = userKey.get()
+
+            assert resp.json()["text"] == STRINGS["reminder_change_config"].format("PM")
+            assert resp.json()["reply_markup"] == TelegramMarkup.ReminderPmKeyboard
+            assert user.status == UserState.REMIND_SET_PM
+            assert user.remindAM == 11
+
+        # Tests invalid AM time sent
+        with self.ndbClient.context() as context:
+            userKey = self.createUser({"status": UserState.REMIND_SET_AM})
+            update = self.createUpdate("12:01", userKey.id())
+
+            resp = self.sendToWebhook(update)
+
+            context.clear_cache()
+            user: User = userKey.get()
+
+            assert resp.json()["text"] == STRINGS["invalid_reminder_time"]
+            assert resp.json()["reply_markup"] == TelegramMarkup.ReminderAmKeyboard
+            assert user.status == UserState.REMIND_SET_AM
+            assert user.remindAM == -1
+
+    # Test handling of REMIND_SET_PM:
+    def test_REMIND_SET_PM(self):
+
+        # Tests valid PM time sent
+        with self.ndbClient.context() as context:
+            userKey = self.createUser({"status": UserState.REMIND_SET_PM})
+            update = self.createUpdate("23:01", userKey.id())
+
+            resp = self.sendToWebhook(update)
+
+            context.clear_cache()
+            user: User = userKey.get()
+
+            assert resp.json()["text"] == STRINGS["reminder_successful_change"].format(
+                f"{user.remindAM:02}:01", f"{user.remindPM:02}:01"
+            )
+            assert user.status == UserState.TEMP_DEFAULT
+            assert user.remindPM == 23
+
+        # Tests invalid PM time sent
+        with self.ndbClient.context() as context:
+            userKey = self.createUser({"status": UserState.REMIND_SET_PM})
+            update = self.createUpdate("00:01", userKey.id())
+
+            resp = self.sendToWebhook(update)
+
+            context.clear_cache()
+            user: User = userKey.get()
+
+            assert resp.json()["text"] == STRINGS["invalid_reminder_time"]
+            assert resp.json()["reply_markup"] == TelegramMarkup.ReminderPmKeyboard
+            assert user.status == UserState.REMIND_SET_PM
+            assert user.remindPM == -1

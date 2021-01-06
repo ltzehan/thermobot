@@ -403,4 +403,46 @@ class UpdateHandler:
                     STRINGS["use_keyboard"], markup=TelegramMarkup.SummaryKeyboard,
                 )
 
+        # User configuring AM reminder
+        elif state == UserState.REMIND_SET_AM:
+
+            if self.update.text not in User.VALID_AM_TIMES:
+                # Invalid time
+                return self.update.makeReply(
+                    STRINGS["invalid_reminder_time"],
+                    markup=TelegramMarkup.ReminderAmKeyboard,
+                )
+
+            else:
+                self.user.remindAM = int(self.update.text[:2])
+                self.user.status = UserState.REMIND_SET_PM
+                self.user.put()
+
+                text = STRINGS["reminder_change_config"].format("PM")
+                return self.update.makeReply(
+                    text, markup=TelegramMarkup.ReminderPmKeyboard, reply=False
+                )
+
+        # User configuring PM reminder
+        elif state == UserState.REMIND_SET_PM:
+
+            if self.update.text not in User.VALID_PM_TIMES:
+                # Invalid time
+                return self.update.makeReply(
+                    STRINGS["invalid_reminder_time"],
+                    markup=TelegramMarkup.ReminderPmKeyboard,
+                )
+
+            else:
+                self.user.remindPM = int(self.update.text[:2])
+                self.user.status = UserState.TEMP_DEFAULT
+                self.user.put()
+
+                text = STRINGS["reminder_successful_change"].format(
+                    f"{self.user.remindAM:02}:01", f"{self.user.remindPM:02}:01"
+                )
+
+                # TODO Should also message user to update temperature (through ReminderHandler?)
+                return self.update.makeReply(text, reply=False)
+
         return "TODO"

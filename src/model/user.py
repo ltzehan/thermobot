@@ -25,16 +25,9 @@ class UserState:
     REMIND_SET_AM = "remind wizard 1"
     REMIND_SET_PM = "remind wizard 2"
 
-    # valid_command_states = [
-    #     "endgame 1",
-    #     "endgame 2",
-    #     "remind wizard 1",
-    #     "remind wizard 2",
-    #     "offline,endgame 1",
-    #     "offline,endgame 2",
-    #     "offline,remind wizard 1",
-    #     "offline,remind wizard 2",
-    # ]
+    # Error states
+    WRONG_PIN = "wrong pin"
+    RESUBMIT_TEMP = "resubmit temp"
 
 
 # Some fields are unused but their logic is maintained for back-compatability
@@ -62,8 +55,11 @@ class User(ndb.Model):
     temp = ndb.StringProperty()
 
     # Time for reminders
+    # Only store the hour since the reminders are sent at the start of the configured hour
     remindAM = ndb.IntegerProperty(default=-1)
     remindPM = ndb.IntegerProperty(default=-1)
+    VALID_AM_TIMES = [f"{x:02}:01" for x in range(12)]
+    VALID_PM_TIMES = [f"{x:02}:01" for x in range(12, 24)]
 
     blocked = ndb.BooleanProperty(default=False)
 
