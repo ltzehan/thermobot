@@ -23,6 +23,7 @@ STRINGS = StringConstants().STRINGS
 
 class FmtDateTime(NamedTuple):
     meridies: str
+    shortDate: str
     date: str
     time: str
     dayOfWeek: str
@@ -38,6 +39,7 @@ def getFmtNow() -> FmtDateTime:
 
     return FmtDateTime(
         meridies="AM" if now.hour < 12 else "PM",
+        shortDate=now.strftime("%d/%m/%y"),
         date=now.strftime("%d/%m/%Y"),
         time=now.strftime("%H:%M"),
         dayOfWeek=now.strftime("%A"),
@@ -133,7 +135,10 @@ class UpdateHandler:
     # Parses the scraped data of group members and sends a reply asking the user to select their name
     def queryMemberName(self):
         groupMembers: list = json.loads(self.user.groupMembers)
-        names = ["{}. <b>{}</b>".format(i + 1, x) for i, x in enumerate(groupMembers)]
+        names = [
+            "{}. <b>{}</b>".format(i + 1, x["identifier"])
+            for i, x in enumerate(groupMembers)
+        ]
 
         text = STRINGS["member_msg_1"] + "\n".join(names)
 
@@ -141,14 +146,14 @@ class UpdateHandler:
         if len(groupMembers) > 300 or len(text) > 4096:
             # Request user to manually input their names; too bad for them
             return self.update.makeReply(
-                STRINGS["member_overflow"].format(str(len(groupMembers)))
+                STRINGS["member_overflow"].format(str(len(groupMembers))), reply=False
             )
 
         # Otherwise send a list of names
         return self.update.makeReply(
             text,
             TelegramMarkup.NameSelectionKeyboard(
-                [x["identifier"] for x in groupMembers]
+                [[x["identifier"]] for x in groupMembers]
             ),
             reply=False,
         )
@@ -161,7 +166,7 @@ class UpdateHandler:
         if self.user.temp == User.TEMP_NONE:
             # Not yet submitted
             text = STRINGS["window_open"].format(
-                now.time, now.dayOfWeek, now.date, now.meridies
+                now.time, now.dayOfWeek, now.shortDate, now.meridies
             )
 
             self.user.status = UserState.TEMP_REPORT
@@ -174,13 +179,17 @@ class UpdateHandler:
         else:
             if now.meridies == "AM":
                 text = (
-                    STRINGS["already_submitted_AM"].format(self.user.temp)
+                    STRINGS["already_submitted_AM"].format(
+                        now.dayOfWeek, now.shortDate, self.user.temp
+                    )
                     + STRINGS["old_user"]
                 )
                 return self.update.makeReply(text, reply=False)
             else:
                 text = (
-                    STRINGS["already_submitted_PM"].format(self.user.temp)
+                    STRINGS["already_submitted_PM"].format(
+                        now.dayOfWeek, now.shortDate, self.user.temp
+                    )
                     + STRINGS["old_user"]
                 )
                 return self.update.makeReply(text, reply=False)
@@ -227,6 +236,7 @@ class UpdateHandler:
                 self.user.groupId = ttWrapper.groupId
                 self.user.groupMembers = json.dumps(ttWrapper.groupMembers)
                 self.user.status = UserState.INIT_CONFIRM_URL
+                self.user.temp = User.TEMP_NONE
                 self.user.put()
 
                 return self.update.makeReply(
@@ -272,11 +282,13 @@ class UpdateHandler:
                 # Find index of user's name
                 idx = [x["identifier"] for x in groupMembers].index(self.update.text)
 
-                self.user.status = UserState.INIT_GET_PIN
+                self.user.status = UserState.INIT_CONFIRM_NAME
 
             except ValueError:
-                # Ask for name again
-                return self.queryMemberName()
+                # TODO Have to handle the two diff cases of normal (user keyboard) and overflow (ask to type)
+                return self.update.makeReply(
+                    STRINGS["member_invalid"].format(self.update.text)
+                )
 
             self.user.memberId = groupMembers[idx]["id"]
             self.user.memberName = groupMembers[idx]["identifier"]
@@ -288,69 +300,61 @@ class UpdateHandler:
                 text, markup=TelegramMarkup.MemberConfirmationKeyboard, reply=False
             )
 
-        # User to enter PIN
-        elif state == UserState.INIT_GET_PIN:
+        # User to confirm name
+        elif state == UserState.INIT_CONFIRM_NAME:
 
             # User has previously confirmed member name and is returning to set PIN
-            if self.user.pin == User.PIN_MEMBER_CONFIRMED:
+            if self.user.pin == User.PIN_NOTSET:
 
-                # User has supposedly configured a PIN after being told to
-                if self.update.text == STRINGS["pin_keyboard"]:
+                groupUrl = TemptakingWrapper.BASE_URL + self.user.groupId
+                ttWrapper = TemptakingWrapper(groupUrl)
 
-                    groupUrl = TemptakingWrapper.BASE_URL + self.user.groupId
-                    ttWrapper = TemptakingWrapper(groupUrl)
+                if ttWrapper.load():
 
-                    if ttWrapper.load():
+                    groupMembers = ttWrapper.groupMembers
+                    try:
+                        idx = [x["identifier"] for x in groupMembers].index(
+                            self.user.memberName
+                        )
 
-                        groupMembers = ttWrapper.groupMembers
-                        try:
-                            idx = [x["identifier"] for x in groupMembers].index(
-                                self.user.memberName
-                            )
-
-                            # User has a configured PIN now
-                            if groupMembers[idx]["hasPin"]:
-                                self.user.status = UserState.INIT_CONFIRM_PIN
-                                self.user.put()
-
-                                return self.update.makeReply(
-                                    STRINGS["pin_msg_1"], reply=False
-                                )
-
-                            # User is a liar
-                            else:
-                                text = STRINGS["set_pin_2"].format(self.user.groupId)
-                                return self.update.makeReply(
-                                    text,
-                                    markup=TelegramMarkup.PinConfiguredKeyboard,
-                                    reply=False,
-                                )
-
-                        except ValueError:
-                            # User has somehow ceased to exist
-                            # This could be a result of user changing groups or their member names
-                            # and is easier to just start from a blank slate
-                            self.user.reset()
+                        # User has a configured PIN now
+                        if groupMembers[idx]["hasPin"]:
+                            self.user.status = UserState.INIT_GET_PIN
+                            self.user.pin = None
                             self.user.put()
 
                             return self.update.makeReply(
-                                STRINGS["fatal_error"], reply=False
+                                STRINGS["pin_msg_1"], reply=False
                             )
 
-                    else:
-                        return self.handleTemptakingError()
+                        # User is a liar
+                        else:
+                            text = STRINGS["set_pin_2"].format(self.user.groupId)
+                            return self.update.makeReply(
+                                text,
+                                markup=TelegramMarkup.PinConfiguredKeyboard,
+                                reply=False,
+                            )
+
+                    except ValueError:
+                        # User has somehow ceased to exist
+                        # This could be a result of user changing groups or their member names
+                        # and is easier to just start from a blank slate
+                        self.user.reset()
+                        self.user.put()
+
+                        return self.update.makeReply(
+                            STRINGS["fatal_error"], reply=False
+                        )
 
                 else:
-                    return self.update.makeReply(
-                        STRINGS["use_keyboard"],
-                        markup=TelegramMarkup.PinConfiguredKeyboard,
-                        reply=False,
-                    )
+                    return self.handleTemptakingError()
 
             # Otherwise user has not yet confirmed their name
             if self.update.text == STRINGS["member_keyboard_no"]:
                 # Ask again
                 self.user.status = UserState.INIT_GET_NAME
+                self.user.memberName = None
                 self.user.put()
 
                 return self.queryMemberName()
@@ -358,8 +362,9 @@ class UpdateHandler:
             elif self.update.text == STRINGS["member_keyboard_yes"]:
 
                 if self.user.pin == "True":
-                    self.user.status = UserState.INIT_CONFIRM_PIN
-                    self.user.pin = User.PIN_MEMBER_CONFIRMED
+                    # User has already set a PIN on the website
+                    self.user.status = UserState.INIT_GET_PIN
+                    self.user.groupMembers = None
                     self.user.put()
 
                     return self.update.makeReply(STRINGS["pin_msg_1"], reply=False)
@@ -368,7 +373,7 @@ class UpdateHandler:
                     # Request user to set PIN first
                     text = STRINGS["set_pin_1"].format(self.user.groupId)
 
-                    self.user.pin = User.PIN_MEMBER_CONFIRMED
+                    self.user.pin = User.PIN_NOTSET
                     self.user.put()
 
                     return self.update.makeReply(
@@ -382,8 +387,8 @@ class UpdateHandler:
                     reply=False,
                 )
 
-        # User to confirm PIN
-        elif state == UserState.INIT_CONFIRM_PIN:
+        # User to enter PIN
+        elif state == UserState.INIT_GET_PIN:
 
             matches = re.findall(r"^\d{4}$", str.strip(self.update.text))
 
@@ -393,7 +398,7 @@ class UpdateHandler:
                 pin = matches[0]
                 text = STRINGS["pin_msg_2"].format(pin)
 
-                self.user.status = UserState.INIT_CONFIRM_PIN_2
+                self.user.status = UserState.INIT_CONFIRM_PIN
                 self.user.pin = pin
                 self.user.put()
 
@@ -404,8 +409,8 @@ class UpdateHandler:
             else:
                 return self.update.makeReply(STRINGS["invalid_pin"])
 
-        # User to confirm PIN again
-        elif state == UserState.INIT_CONFIRM_PIN_2:
+        # User to confirm PIN
+        elif state == UserState.INIT_CONFIRM_PIN:
 
             # User confirms correct PIN
             if self.update.text == STRINGS["pin_keyboard_yes"]:
@@ -415,7 +420,6 @@ class UpdateHandler:
                 )
 
                 self.user.status = UserState.INIT_SUMMARY
-                self.user.groupMembers = None
                 self.user.put()
 
                 # TODO notify admins
@@ -425,11 +429,12 @@ class UpdateHandler:
                 )
 
             elif self.update.text == STRINGS["pin_keyboard_no"]:
-                # Ask for PIN
+                # Ask for PIN again
                 self.user.status = UserState.INIT_GET_PIN
+                self.user.pin = None
                 self.user.put()
 
-                return self.update.makeReply(STRINGS["pin_msg_3"], reply=False)
+                return self.update.makeReply(STRINGS["pin_msg_1"], reply=False)
 
             else:
                 return self.update.makeReply(
@@ -440,7 +445,7 @@ class UpdateHandler:
         # User to confirm summary of initialization
         elif state == UserState.INIT_SUMMARY:
 
-            # Correct details
+            # Incorrect details
             if self.update.text == STRINGS["summary_keyboard_no"]:
 
                 # Reset state right to the beginning
@@ -540,7 +545,12 @@ class UpdateHandler:
 
                     now = getFmtNow()
                     text = STRINGS["just_submitted"].format(
-                        now.clockEmoji, now.dayOfWeek, now.time, now.meridies, temp,
+                        now.dayOfWeek,
+                        now.shortDate,
+                        now.meridies,
+                        now.clockEmoji,
+                        now.time,
+                        temp,
                     )
 
                     self.user.status = UserState.TEMP_DEFAULT
@@ -561,4 +571,4 @@ class UpdateHandler:
                     # TODO check website status
                     pass
 
-        return "TODO"
+        return self.update.makeReply("TODO")

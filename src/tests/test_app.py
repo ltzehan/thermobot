@@ -94,7 +94,7 @@ class TestApp(BaseTestClass):
 
     def test_invalidUpdateObject(self):
         update = self.createUpdate("", "")
-        del update["message"]["date"]
+        del update["message"]["from"]
 
         resp = self.sendToWebhook(update)
         assert resp.text == "Invalid update object"
@@ -201,7 +201,7 @@ class TestUpdateHandler(BaseTestClass):
             groupMembers = json.loads(user.groupMembers)
 
             assert resp.json()["reply_markup"] == TelegramMarkup.NameSelectionKeyboard(
-                [x["identifier"] for x in groupMembers]
+                [[x["identifier"]] for x in groupMembers]
             )
             assert user.status == UserState.INIT_GET_NAME
 
@@ -356,7 +356,7 @@ class TestInitGetName(BaseTestClass):
                 resp.json()["reply_markup"] == TelegramMarkup.MemberConfirmationKeyboard
             )
 
-            assert user.status == UserState.INIT_GET_PIN
+            assert user.status == UserState.INIT_CONFIRM_NAME
             assert user.memberId == "TEST_MEMBERID"
             assert user.memberName == "TEST_MEMBERNAME"
 
@@ -371,19 +371,18 @@ class TestInitGetName(BaseTestClass):
             context.clear_cache()
             user: User = userKey.get()
 
-            # Other tests handled by test_queryMemberName
-            assert resp.json()["text"].startswith(STRINGS["member_msg_1"])
+            assert looseCompare(resp.json()["text"], (STRINGS["member_invalid"]))
             assert user.status == UserState.INIT_GET_NAME
 
 
-# Test handling of INIT_GET_PIN
-class TestInitGetPin(BaseTestClass):
+# Test handling of INIT_CONFIRM_NAME
+class TestInitConfirmName(BaseTestClass):
 
     # Minimal state required
     def _createUser(self, hasPin: bool, pinState: str) -> ndb.Key:
         return self.createUser(
             {
-                "status": UserState.INIT_GET_PIN,
+                "status": UserState.INIT_CONFIRM_NAME,
                 "groupId": TEST_GROUPID,
                 "groupName": TEST_GROUPNAME,
                 "groupMembers": json.dumps(
@@ -413,7 +412,7 @@ class TestInitGetPin(BaseTestClass):
             # Other tests handled by test_queryMemberName
             assert resp.json()["text"].startswith(STRINGS["member_msg_1"])
             assert user.status == UserState.INIT_GET_NAME
-            assert user.pin != User.PIN_MEMBER_CONFIRMED
+            assert user.pin != User.PIN_NOTSET
 
     # Tests correct name and PIN already set
     def test_correctName_pinSet(self):
@@ -427,8 +426,7 @@ class TestInitGetPin(BaseTestClass):
             user: User = userKey.get()
 
             assert resp.json()["text"] == STRINGS["pin_msg_1"]
-            assert user.status == UserState.INIT_CONFIRM_PIN
-            assert user.pin == User.PIN_MEMBER_CONFIRMED
+            assert user.status == UserState.INIT_GET_PIN
 
     # Tests correct name but PIN not yet set
     def test_correctName_noPin(self):
@@ -443,8 +441,8 @@ class TestInitGetPin(BaseTestClass):
 
             assert resp.json()["text"] == STRINGS["set_pin_1"].format(user.groupId)
             assert resp.json()["reply_markup"] == TelegramMarkup.PinConfiguredKeyboard
-            assert user.status == UserState.INIT_GET_PIN
-            assert user.pin == User.PIN_MEMBER_CONFIRMED
+            assert user.status == UserState.INIT_CONFIRM_NAME
+            assert user.pin == User.PIN_NOTSET
 
     # Tests invalid response (not in keyboard)
     def test_invalidResponse(self):
@@ -461,24 +459,24 @@ class TestInitGetPin(BaseTestClass):
             assert (
                 resp.json()["reply_markup"] == TelegramMarkup.MemberConfirmationKeyboard
             )
-            assert user.status == UserState.INIT_GET_PIN
-            assert user.pin != User.PIN_MEMBER_CONFIRMED
+            assert user.status == UserState.INIT_CONFIRM_NAME
+            assert user.pin != User.PIN_NOTSET
 
 
-# Test handling of INIT_GET_PIN for users who did not have a configured PIN
-class TestInitGetPin_PinNotSet(BaseTestClass):
+# Test handling of INIT_CONFIRM_NAME for users who did not have a configured PIN
+class TestInitConfirmName_PinNotSet(BaseTestClass):
 
     # Minimal state required
     def _createUser(self, member) -> ndb.Key:
         return self.createUser(
             {
-                "status": UserState.INIT_GET_PIN,
+                "status": UserState.INIT_CONFIRM_NAME,
                 "groupId": TEST_GROUPID,
                 "groupName": TEST_GROUPNAME,
                 "groupMembers": json.dumps([TEST_MEMBER_NOPIN, TEST_MEMBER_PINSET]),
                 "memberId": member["id"],
                 "memberName": member["identifier"],
-                "pin": User.PIN_MEMBER_CONFIRMED,
+                "pin": User.PIN_NOTSET,
             }
         )
 
@@ -494,7 +492,7 @@ class TestInitGetPin_PinNotSet(BaseTestClass):
             user: User = userKey.get()
 
             assert resp.json()["text"] == STRINGS["pin_msg_1"]
-            assert user.status == UserState.INIT_CONFIRM_PIN
+            assert user.status == UserState.INIT_GET_PIN
 
     # User still has no PIN
     def test_hasNotConfigPin(self):
@@ -509,31 +507,16 @@ class TestInitGetPin_PinNotSet(BaseTestClass):
 
             assert resp.json()["text"] == STRINGS["set_pin_2"].format(user.groupId)
             assert resp.json()["reply_markup"] == TelegramMarkup.PinConfiguredKeyboard
-            assert user.status == UserState.INIT_GET_PIN
-
-    # Tests invalid response (not in keyboard)
-    def test_invalidResponse(self):
-        with self.ndbClient.context() as context:
-            userKey = self._createUser(TEST_MEMBER_NOPIN)
-            update = self.createUpdate("invalid response", userKey.id())
-
-            resp = self.sendToWebhook(update)
-
-            context.clear_cache()
-            user: User = userKey.get()
-
-            assert resp.json()["text"] == STRINGS["use_keyboard"]
-            assert resp.json()["reply_markup"] == TelegramMarkup.PinConfiguredKeyboard
-            assert user.status == UserState.INIT_GET_PIN
+            assert user.status == UserState.INIT_CONFIRM_NAME
 
 
-# Test handling of INIT_CONFIRM_PIN
-class TestInitConfirmPin(BaseTestClass):
+# Test handling of INIT_GET_PIN
+class TestInitGetPin(BaseTestClass):
 
     # Minimal state required
     def _createUser(self) -> ndb.Key:
         return self.createUser(
-            {"status": UserState.INIT_CONFIRM_PIN, "pin": User.PIN_MEMBER_CONFIRMED,}
+            {"status": UserState.INIT_GET_PIN, "pin": User.PIN_NOTSET,}
         )
 
     # Tests valid PIN
@@ -550,7 +533,7 @@ class TestInitConfirmPin(BaseTestClass):
             assert resp.json()["text"] == STRINGS["pin_msg_2"].format("0000")
             assert resp.json()["reply_markup"] == TelegramMarkup.PinConfirmationKeyboard
             assert user.pin == "0000"
-            assert user.status == UserState.INIT_CONFIRM_PIN_2
+            assert user.status == UserState.INIT_CONFIRM_PIN
 
     # Tests invalid PIN
     def test_invalidPin(self):
@@ -564,17 +547,17 @@ class TestInitConfirmPin(BaseTestClass):
             user: User = userKey.get()
 
             assert resp.json()["text"] == STRINGS["invalid_pin"]
-            assert user.pin == User.PIN_MEMBER_CONFIRMED
-            assert user.status == UserState.INIT_CONFIRM_PIN
+            assert user.pin == User.PIN_NOTSET
+            assert user.status == UserState.INIT_GET_PIN
 
 
-# Test handling of INIT_CONFIRM_PIN_2
-class TestInitConfirmPin2(BaseTestClass):
+# Test handling of INIT_CONFIRM_PIN
+class TestInitConfirmPin(BaseTestClass):
 
     # Tests PIN confirmed
     def test_pinConfirmed(self):
         with self.ndbClient.context() as context:
-            userKey = self.createUser({"status": UserState.INIT_CONFIRM_PIN_2})
+            userKey = self.createUser({"status": UserState.INIT_CONFIRM_PIN})
             update = self.createUpdate(STRINGS["pin_keyboard_yes"], userKey.id())
 
             resp = self.sendToWebhook(update)
@@ -592,7 +575,7 @@ class TestInitConfirmPin2(BaseTestClass):
     # Tests wrong PIN given
     def test_pinWrong(self):
         with self.ndbClient.context() as context:
-            userKey = self.createUser({"status": UserState.INIT_CONFIRM_PIN_2})
+            userKey = self.createUser({"status": UserState.INIT_CONFIRM_PIN})
             update = self.createUpdate(STRINGS["pin_keyboard_no"], userKey.id())
 
             resp = self.sendToWebhook(update)
@@ -600,13 +583,13 @@ class TestInitConfirmPin2(BaseTestClass):
             context.clear_cache()
             user: User = userKey.get()
 
-            assert resp.json()["text"] == STRINGS["pin_msg_3"]
+            assert resp.json()["text"] == STRINGS["pin_msg_1"]
             assert user.status == UserState.INIT_GET_PIN
 
     # Tests invalid response (not in keyboard)
     def test_invalidResponse(self):
         with self.ndbClient.context() as context:
-            userKey = self.createUser({"status": UserState.INIT_CONFIRM_PIN_2})
+            userKey = self.createUser({"status": UserState.INIT_CONFIRM_PIN})
             update = self.createUpdate("invalid response", userKey.id())
 
             resp = self.sendToWebhook(update)
@@ -616,7 +599,7 @@ class TestInitConfirmPin2(BaseTestClass):
 
             assert resp.json()["text"] == STRINGS["use_keyboard"]
             assert resp.json()["reply_markup"] == TelegramMarkup.PinConfirmationKeyboard
-            assert user.status == UserState.INIT_CONFIRM_PIN_2
+            assert user.status == UserState.INIT_CONFIRM_PIN
 
 
 # Test handling of INIT_SUMMARY:

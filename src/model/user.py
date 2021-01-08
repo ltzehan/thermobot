@@ -11,9 +11,9 @@ class UserState:
     INIT_START = "1"
     INIT_CONFIRM_URL = "2"
     INIT_GET_NAME = "3"
-    INIT_GET_PIN = "4"
-    INIT_CONFIRM_PIN = "5"
-    INIT_CONFIRM_PIN_2 = "6"
+    INIT_CONFIRM_NAME = "4"
+    INIT_GET_PIN = "5"
+    INIT_CONFIRM_PIN = "6"
     INIT_SUMMARY = "7"
 
     # Default state after configuration
@@ -45,18 +45,17 @@ class User(ndb.Model):
 
     memberName = ndb.StringProperty()
     memberId = ndb.StringProperty()
-    # This contains a PIN but may also contain certain strings values
-    # "False"/"True": set from hasPin property of scraped data
-    # "no pin": set by bot after user has confirmed their name and is told to set a PIN
-    PIN_MEMBER_CONFIRMED = "no pin"
+
     pin = ndb.StringProperty()
+    # Set when user confirms their name but have not set a PIN on the website
+    PIN_NOTSET = "no pin"
 
     # Last recorded temperature
+    temp = ndb.StringProperty()
     # Reset at the start of a new session
     TEMP_NONE = "none"
     # Temperature wasn't set because of an error
     TEMP_ERROR = "error"
-    temp = ndb.StringProperty()
 
     # Time for reminders
     # Only store the hour since the reminders are sent at the start of the configured hour
@@ -66,6 +65,11 @@ class User(ndb.Model):
     VALID_PM_TIMES = [f"{x:02}:01" for x in range(12, 24)]
 
     blocked = ndb.BooleanProperty(default=False)
+
+    # To maintain back-compatability with the Cloud Datastore
+    @classmethod
+    def _get_kind(cls):
+        return "Client"
 
     def reset(self):
         self.status = UserState.INIT_START

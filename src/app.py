@@ -63,7 +63,7 @@ def create_app():
             body = request.get_json()
         except:
             logStr = "Received malformed update"
-            logging.warn(logStr)
+            logging.warning(logStr)
             return makeResponse(logStr)
 
         # Extract message component from update
@@ -79,7 +79,7 @@ def create_app():
 
         if not updateObj.isValid():
             logStr = "Invalid update object"
-            logger.warn(logStr)
+            logger.warning(logStr)
             return logStr
 
         updateHandler = UpdateHandler(updateObj)

@@ -13,10 +13,9 @@ class WebhookUpdate:
         self._isValid = True
         try:
             self.text: str = messageObj.get("text")
-            self.messageId: str = messageObj["message_id"]
-            self.date: str = messageObj["date"]
+            self.messageId: str = str(messageObj["message_id"])
             self.fromUserId: str = messageObj["from"]
-            self.chatId: str = messageObj["chat"]["id"]
+            self.chatId: str = str(messageObj["chat"]["id"])
         except:
             # Some field is empty
             self._isValid = False

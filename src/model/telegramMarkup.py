@@ -16,12 +16,12 @@ class TelegramMarkup:
     ReminderPmKeyboard = {"keyboard": _hourListPm, "one_time_keyboard": True}
 
     GroupConfirmationKeyboard = {
-        "keyboard": [STRINGS["group_keyboard_yes"], STRINGS["group_keyboard_no"]],
+        "keyboard": [[STRINGS["group_keyboard_yes"]], [STRINGS["group_keyboard_no"]]],
         "one_time_keyboard": True,
     }
 
     MemberConfirmationKeyboard = {
-        "keyboard": [STRINGS["member_keyboard_yes"], STRINGS["member_keyboard_no"]],
+        "keyboard": [[STRINGS["member_keyboard_yes"]], [STRINGS["member_keyboard_no"]]],
         "one_time_keyboard": True,
     }
 
@@ -36,7 +36,10 @@ class TelegramMarkup:
     }
 
     SummaryKeyboard = {
-        "keyboard": [[STRINGS["pin_keyboard_yes"]], [STRINGS["pin_keyboard_no"]],],
+        "keyboard": [
+            [STRINGS["summary_keyboard_yes"]],
+            [STRINGS["summary_keyboard_no"]],
+        ],
         "one_time_keyboard": True,
     }
 
