@@ -52,6 +52,10 @@ class User(ndb.Model):
     pin = ndb.StringProperty()
 
     # Last recorded temperature
+    # Reset at the start of a new session
+    TEMP_NONE = "none"
+    # Temperature wasn't set because of an error
+    TEMP_ERROR = "error"
     temp = ndb.StringProperty()
 
     # Time for reminders

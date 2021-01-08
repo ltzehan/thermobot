@@ -5,6 +5,7 @@
 import logging
 import json
 import re
+import requests
 from typing import NamedTuple
 from datetime import datetime, timedelta, timezone
 
@@ -25,6 +26,7 @@ class FmtDateTime(NamedTuple):
     date: str
     time: str
     dayOfWeek: str
+    clockEmoji: str
 
 
 def getFmtNow() -> FmtDateTime:
@@ -32,11 +34,14 @@ def getFmtNow() -> FmtDateTime:
     # Production and development environment are in different time zones, so we convert all times from UTC manually
     now = datetime.now(timezone.utc) + timedelta(hours=8)
 
+    clockEmojiIndex = round(2 * (now.hour + now.minute / 60) % 24)
+
     return FmtDateTime(
         meridies="AM" if now.hour < 12 else "PM",
         date=now.strftime("%d/%m/%Y"),
         time=now.strftime("%H:%M"),
         dayOfWeek=now.strftime("%A"),
+        clockEmoji=STRINGS["clocks"][clockEmojiIndex],
     )
 
 
@@ -66,7 +71,7 @@ class UpdateHandler:
 
     # Starts the reminder wizard
     def startReminderWizard(self):
-        # TODO Write tests
+
         # Configure reminders
         if self.user.remindAM == -1 or self.user.remindPM == -1:
             # Reminder not configured
@@ -103,22 +108,16 @@ class UpdateHandler:
         elif self.user.canIssueCommand():
 
             if command == "/forcesubmit":
-                # TODO Write tests and check if time is correct
-                now = getFmtNow()
-                text = STRINGS["window_open"].format(
-                    now.time, now.dayOfWeek, now.date, now.meridies
-                )
 
-                # Now wait for user to send temperature
-                self.user.status = UserState.TEMP_REPORT
+                # Override previous temperature for this session
+                self.user.temp = User.TEMP_NONE
                 self.user.put()
 
-                return self.update.makeReply(text, TelegramMarkup.TemperatureKeyboard)
+                return self.sendReminder()
 
             elif command == "/remind":
                 return self.startReminderWizard()
 
-        # TODO write test
         return self.update.makeReply(STRINGS["invalid_input"])
 
     # Checks if error is caused by temptaking website being offline
@@ -153,6 +152,63 @@ class UpdateHandler:
             ),
             reply=False,
         )
+
+    # Sends reminder to submit temperature
+    def sendReminder(self):
+
+        now = getFmtNow()
+
+        if self.user.temp == User.TEMP_NONE:
+            # Not yet submitted
+            text = STRINGS["window_open"].format(
+                now.time, now.dayOfWeek, now.date, now.meridies
+            )
+
+            self.user.status = UserState.TEMP_REPORT
+            self.user.put()
+
+            return self.update.makeReply(
+                text, TelegramMarkup.TemperatureKeyboard, reply=False
+            )
+
+        else:
+            if now.meridies == "AM":
+                text = (
+                    STRINGS["already_submitted_AM"].format(self.user.temp)
+                    + STRINGS["old_user"]
+                )
+                return self.update.makeReply(text, reply=False)
+            else:
+                text = (
+                    STRINGS["already_submitted_PM"].format(self.user.temp)
+                    + STRINGS["old_user"]
+                )
+                return self.update.makeReply(text, reply=False)
+
+    # Submits temperature to temptaking website and returns status
+    def submitTemp(self, temp):
+
+        now = getFmtNow()
+        try:
+            url = TemptakingWrapper.BASE_URL + "MemberSubmitTemperature"
+            payload = {
+                "groupCode": self.user.groupId,
+                "date": now.date,
+                "meridies": now.meridies,
+                "memberId": self.user.memberId,
+                "temperature": temp,
+                "pin": self.user.pin,
+            }
+
+            resp = requests.post(url, data=payload)
+            logger.debug("Temperature submission returned: {}".format(resp.text))
+
+        except Exception as e:
+
+            logger.error(e)
+            return "error"
+
+        return resp.text
 
     def handleByState(self):
 
@@ -442,7 +498,67 @@ class UpdateHandler:
                     f"{self.user.remindAM:02}:01", f"{self.user.remindPM:02}:01"
                 )
 
-                # TODO Should also message user to update temperature (through ReminderHandler?)
-                return self.update.makeReply(text, reply=False)
+                # Keyboard is just there to prompt user to send another message to trigger next state
+                return self.update.makeReply(
+                    text, markup=TelegramMarkup.FirstSubmitKeyboard, reply=False
+                )
+
+        # User is waiting for reminder
+        elif state == UserState.TEMP_DEFAULT:
+
+            return self.sendReminder()
+
+        # User to report temperature
+        elif state == UserState.TEMP_REPORT:
+
+            matches = re.findall(r"^\d{2}\.\d", self.update.text)
+
+            # Invalid temperature
+            if len(matches) == 0:
+                return self.update.makeReply(
+                    STRINGS["invalid_temp"],
+                    markup=TelegramMarkup.TemperatureKeyboard,
+                    reply=False,
+                )
+
+            # Temperature is in valid format
+            temp = float(self.update.text)
+
+            # Temperature range imposed by temptaking website
+            if temp > 40 or temp < 35:
+                # User is possibly on the brink of death
+                return self.update.makeReply(
+                    STRINGS["temp_outside_range"],
+                    markup=TelegramMarkup.TemperatureKeyboard,
+                    reply=False,
+                )
+
+            else:
+
+                resp = self.submitTemp(temp)
+                if resp == "OK":
+
+                    now = getFmtNow()
+                    text = STRINGS["just_submitted"].format(
+                        now.clockEmoji, now.dayOfWeek, now.time, now.meridies, temp,
+                    )
+
+                    self.user.status = UserState.TEMP_DEFAULT
+                    self.user.temp = str(temp)
+                    self.user.put()
+
+                    return self.update.makeReply(text, reply=False)
+
+                elif resp == "Wrong pin.":
+
+                    self.user.status = UserState.WRONG_PIN
+                    self.user.temp = User.TEMP_ERROR
+                    self.user.put()
+
+                    return self.update.makeReply(STRINGS["wrong_pin"], reply=False)
+
+                else:
+                    # TODO check website status
+                    pass
 
         return "TODO"

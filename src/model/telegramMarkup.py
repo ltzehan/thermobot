@@ -40,6 +40,11 @@ class TelegramMarkup:
         "one_time_keyboard": True,
     }
 
+    FirstSubmitKeyboard = {
+        "keyboard": [[STRINGS["first_submit"]]],
+        "one_time_keyboard": True,
+    }
+
     @classmethod
     def NameSelectionKeyboard(cls, names: list):
         return {

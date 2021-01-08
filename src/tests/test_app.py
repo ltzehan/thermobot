@@ -127,7 +127,9 @@ class TestUpdateHandler(BaseTestClass):
     # Tests /forcesubmit command
     def test_forcesubmitCommand(self):
         with self.ndbClient.context() as context:
-            userKey = self.createUser({"status": UserState.TEMP_DEFAULT})
+            userKey = self.createUser(
+                {"status": UserState.TEMP_DEFAULT, "temp": User.TEMP_NONE}
+            )
             update = self.createUpdate("/forcesubmit", userKey.id())
 
             resp = self.sendToWebhook(update)
@@ -136,7 +138,7 @@ class TestUpdateHandler(BaseTestClass):
 
             context.clear_cache()
             user: User = userKey.get()
-            assert user.status == UserState.TEMP_REPORT
+            assert user.temp == User.TEMP_NONE
 
     # Tests /remind command for preconfigured user
     def test_remindCommand_withConfig(self):
@@ -631,7 +633,6 @@ class TestInitSummary(BaseTestClass):
             context.clear_cache()
             user: User = userKey.get()
 
-            # TODO Test startReminderWizard() separately
             assert resp.json()["text"].startswith(STRINGS["reminder_not_configured"])
             assert user.status == UserState.REMIND_SET_AM
 
@@ -718,6 +719,7 @@ class TestRemindSetPm(BaseTestClass):
             assert resp.json()["text"] == STRINGS["reminder_successful_change"].format(
                 f"{user.remindAM:02}:01", f"{user.remindPM:02}:01"
             )
+            assert resp.json()["reply_markup"] == TelegramMarkup.FirstSubmitKeyboard
             assert user.status == UserState.TEMP_DEFAULT
             assert user.remindPM == 23
 
@@ -736,3 +738,131 @@ class TestRemindSetPm(BaseTestClass):
             assert resp.json()["reply_markup"] == TelegramMarkup.ReminderPmKeyboard
             assert user.status == UserState.REMIND_SET_PM
             assert user.remindPM == -1
+
+
+# Test handling of TEMP_DEFAULT
+class TestTempDefault(BaseTestClass):
+
+    # Tests reminder
+    def test_reminder(self):
+        with self.ndbClient.context() as context:
+            userKey = self.createUser(
+                {"status": UserState.TEMP_DEFAULT, "temp": User.TEMP_NONE}
+            )
+            update = self.createUpdate("", userKey.id())
+
+            resp = self.sendToWebhook(update)
+
+            context.clear_cache()
+            user: User = userKey.get()
+
+            assert looseCompare(resp.json()["text"], STRINGS["window_open"])
+            assert resp.json()["reply_markup"] == TelegramMarkup.TemperatureKeyboard
+            assert user.status == UserState.TEMP_REPORT
+
+    # Tests for user that has already submitted
+    def test_alreadySubmitted(self):
+        with self.ndbClient.context() as context:
+            userKey = self.createUser(
+                {"status": UserState.TEMP_DEFAULT, "temp": "36.0"}
+            )
+            update = self.createUpdate("", userKey.id())
+
+            resp = self.sendToWebhook(update)
+
+            context.clear_cache()
+            user: User = userKey.get()
+
+            assert "36.0" in resp.json()["text"]
+            assert looseCompare(
+                resp.json()["text"], STRINGS["already_submitted_AM"]
+            ) or looseCompare(resp.json()["text"], STRINGS["already_submitted_PM"])
+            assert user.status == UserState.TEMP_DEFAULT
+
+
+# Test handling of TEMP_REPORT:
+class TestTempReport(BaseTestClass):
+
+    # Minimal state required
+    def _createUser(self) -> ndb.Key:
+        return self.createUser(
+            {
+                "status": UserState.TEMP_REPORT,
+                "groupId": TEST_GROUPID,
+                "groupName": TEST_GROUPNAME,
+                "memberName": TEST_MEMBER_PINSET["identifier"],
+                "memberId": TEST_MEMBER_PINSET["id"],
+                "temp": User.TEMP_NONE,
+                "pin": "0000",
+            }
+        )
+
+    # Tests valid temperature sent
+    def test_validTemp(self):
+        with self.ndbClient.context() as context:
+            userKey = self._createUser()
+            update = self.createUpdate("36.0", userKey.id())
+
+            resp = self.sendToWebhook(update)
+
+            context.clear_cache()
+            user: User = userKey.get()
+
+            assert "36.0" in resp.json()["text"]
+            assert looseCompare(resp.json()["text"], STRINGS["just_submitted"])
+            assert user.status == UserState.TEMP_DEFAULT
+            assert user.temp == "36.0"
+
+    # Tests temperature out of accepted range
+    def test_outOfRangeTemp(self):
+        with self.ndbClient.context() as context:
+            userKey = self._createUser()
+            update = self.createUpdate("33.0", userKey.id())
+
+            resp = self.sendToWebhook(update)
+
+            context.clear_cache()
+            user: User = userKey.get()
+
+            assert resp.json()["text"] == STRINGS["temp_outside_range"]
+            assert user.status == UserState.TEMP_REPORT
+            assert user.temp == User.TEMP_NONE
+
+    # Test invalid temperature format
+    def test_invalidTemp(self):
+        with self.ndbClient.context() as context:
+            userKey = self._createUser()
+            update = self.createUpdate("invalid format", userKey.id())
+
+            resp = self.sendToWebhook(update)
+
+            context.clear_cache()
+            user: User = userKey.get()
+
+            assert resp.json()["text"] == STRINGS["invalid_temp"]
+            assert user.status == UserState.TEMP_REPORT
+
+    # Test wrong PIN given
+    def test_wrongPin(self):
+        with self.ndbClient.context() as context:
+            userKey = self.createUser(
+                {
+                    "status": UserState.TEMP_REPORT,
+                    "groupId": TEST_GROUPID,
+                    "groupName": TEST_GROUPNAME,
+                    "memberName": TEST_MEMBER_PINSET["identifier"],
+                    "memberId": TEST_MEMBER_PINSET["id"],
+                    "temp": User.TEMP_NONE,
+                    "pin": "9999",
+                }
+            )
+            update = self.createUpdate("36.0", userKey.id())
+
+            resp = self.sendToWebhook(update)
+
+            context.clear_cache()
+            user: User = userKey.get()
+
+            assert resp.json()["text"] == STRINGS["wrong_pin"]
+            assert user.status == UserState.WRONG_PIN
+            assert user.temp == User.TEMP_ERROR
