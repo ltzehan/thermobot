@@ -9,6 +9,7 @@ from .util.telegramWrapper import TelegramApiWrapper
 from .stringConstants import StringConstants
 from .model.webhookUpdate import WebhookUpdate
 from .model.updateHandler import UpdateHandler
+from .model.broadcastHandler import BroadcastHandler
 
 # Configure logging
 logging.basicConfig(
@@ -94,6 +95,14 @@ def create_app():
     def remindRoute():
         # TODO
         pass
+
+    # Endpoint for sending broadcasts
+    @app.route(getRouteUrl("broadcast"), methods=["POST"])
+    def broadcastRoute():
+
+        text = request.get_json()["msg"]
+
+        return BroadcastHandler.broadcast(telegramApi, text)
 
     # Configures bot webhook
     @app.route(getRouteUrl("setWebhook"))
