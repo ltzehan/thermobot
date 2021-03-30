@@ -6,8 +6,6 @@ import logging
 import json
 import re
 import requests
-from typing import NamedTuple
-from datetime import datetime, timedelta, timezone
 
 logger = logging.getLogger(__name__)
 
@@ -17,34 +15,9 @@ from .user import User, UserState
 from .webhookUpdate import WebhookUpdate
 from .telegramMarkup import TelegramMarkup
 from ..util.temptakingWrapper import TemptakingWrapper
+from ..util.fmtDateTime import FmtDateTime
 
 STRINGS = StringConstants().STRINGS
-
-
-class FmtDateTime(NamedTuple):
-    meridies: str
-    shortDate: str
-    date: str
-    time: str
-    dayOfWeek: str
-    clockEmoji: str
-
-
-def getFmtNow() -> FmtDateTime:
-
-    # Production and development environment are in different time zones, so we convert all times from UTC manually
-    now = datetime.now(timezone.utc) + timedelta(hours=8)
-
-    clockEmojiIndex = round(2 * (now.hour + now.minute / 60) % 24)
-
-    return FmtDateTime(
-        meridies="AM" if now.hour < 12 else "PM",
-        shortDate=now.strftime("%d/%m/%y"),
-        date=now.strftime("%d/%m/%Y"),
-        time=now.strftime("%H:%M"),
-        dayOfWeek=now.strftime("%A"),
-        clockEmoji=STRINGS["clocks"][clockEmojiIndex],
-    )
 
 
 class UpdateHandler:
@@ -161,7 +134,7 @@ class UpdateHandler:
     # Sends reminder to submit temperature
     def sendReminder(self):
 
-        now = getFmtNow()
+        now = FmtDateTime.now()
 
         if self.user.temp == User.TEMP_NONE:
             # Not yet submitted
@@ -197,7 +170,7 @@ class UpdateHandler:
     # Submits temperature to temptaking website and returns status
     def submitTemp(self, temp):
 
-        now = getFmtNow()
+        now = FmtDateTime.now()
         try:
             url = TemptakingWrapper.BASE_URL + "MemberSubmitTemperature"
             payload = {
@@ -237,6 +210,7 @@ class UpdateHandler:
                 self.user.groupMembers = json.dumps(ttWrapper.groupMembers)
                 self.user.status = UserState.INIT_CONFIRM_URL
                 self.user.temp = User.TEMP_NONE
+                self.user.blocked = False
                 self.user.put()
 
                 return self.update.makeReply(
@@ -543,7 +517,7 @@ class UpdateHandler:
                 resp = self.submitTemp(temp)
                 if resp == "OK":
 
-                    now = getFmtNow()
+                    now = FmtDateTime.now()
                     text = STRINGS["just_submitted"].format(
                         now.dayOfWeek,
                         now.shortDate,

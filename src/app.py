@@ -2,14 +2,15 @@ import logging
 import json
 from typing import List
 from flask import Flask, request, jsonify
+from google.cloud import ndb
 
-from .util.ndbMiddleware import NdbMiddleware
 from .util.telegramWrapper import TelegramApiWrapper
 
 from .stringConstants import StringConstants
 from .model.webhookUpdate import WebhookUpdate
 from .model.updateHandler import UpdateHandler
 from .model.broadcastHandler import BroadcastHandler
+from .model.reminderHandler import ReminderHandler
 
 # Configure logging
 logging.basicConfig(
@@ -32,8 +33,7 @@ def create_app():
     STRINGS = StringConstants().STRINGS
     telegramApi = TelegramApiWrapper(SECRETS["telegram-bot"])
 
-    # Set up Cloud NDB middleware
-    app.wsgi_app = NdbMiddleware(app.wsgi_app)
+    ndbClient = ndb.Client()
 
     # Endpoints are placed behind the bot token to limit accessibility
     def getRouteUrl(endpoint):
@@ -83,9 +83,10 @@ def create_app():
             logger.warning(logStr)
             return logStr
 
-        updateHandler = UpdateHandler(updateObj)
+        with ndbClient.context():
+            updateHandler = UpdateHandler(updateObj)
+            resp = updateHandler.process()
 
-        resp = updateHandler.process()
         telegramApi.sendMessage(resp)
 
         return makeResponse(resp)
@@ -93,8 +94,9 @@ def create_app():
     # Endpoint for Cloud scheduler
     @app.route(getRouteUrl("remind"))
     def remindRoute():
-        # TODO
-        pass
+
+        with ndbClient.context():
+            return ReminderHandler.remind(telegramApi)
 
     # Endpoint for sending broadcasts
     @app.route(getRouteUrl("broadcast"), methods=["POST"])
@@ -102,7 +104,8 @@ def create_app():
 
         text = request.get_json()["msg"]
 
-        return BroadcastHandler.broadcast(telegramApi, text)
+        with ndbClient.context():
+            return BroadcastHandler.broadcast(telegramApi, text)
 
     # Configures bot webhook
     @app.route(getRouteUrl("setWebhook"))

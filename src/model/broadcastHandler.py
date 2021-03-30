@@ -14,12 +14,10 @@ class BroadcastHandler:
     def broadcast(cls, telegramApi: TelegramApiWrapper, text: str) -> str:
 
         # Fetch users that aren't blocked
-        allUsers = (
-            User.query(User.blocked == False).fetch_async(keys_only=True).result()
-        )
+        allUserKeys = User.query(User.blocked == False).fetch(keys_only=True)
         # If the User keys are passed in, the gevent coroutines will be sharing the same
         # NDB context and conflict
-        allUserKeys = [x.id() for x in allUsers]
+        allUserIds = [x.id() for x in allUserKeys]
 
         SUCCESS = 0
         FAILED = 1
@@ -56,7 +54,7 @@ class BroadcastHandler:
         start = time()
 
         pool = Group()
-        respList = pool.imap(sendMessage, allUserKeys, maxsize=100)
+        respList = pool.imap_unordered(sendMessage, allUserIds, maxsize=100)
 
         # Count statuses of broadcast
         success, failed, blocked = 0, 0, 0
@@ -72,10 +70,9 @@ class BroadcastHandler:
                 blockedUsers.append(resp[0])
 
         elapsedTime = time() - start
-        rate = len(allUsers) / elapsedTime
+        rate = len(allUserKeys) / elapsedTime
 
-        logger.info(
-            f"Broadcast sent to {len(allUsers)} clients in {elapsedTime:.4f}s ({rate:.2f}/s). Successes: {success}, blocked: {blocked}, failures: {failed}"
-        )
+        logStr = f"Broadcast sent to {len(allUserKeys)} clients in {elapsedTime:.4f}s ({rate:.2f}/s). Successes: {success}, blocked: {blocked}, failures: {failed}"
 
-        return "TODO"
+        logger.info(logStr)
+        return logStr

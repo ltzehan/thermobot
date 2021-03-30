@@ -8,8 +8,8 @@ from google.cloud import ndb
 class NdbMiddleware:
     def __init__(self, app):
         self.app = app
-        self.client = ndb.Client()
+        self.context = ndb.Client().context()
 
     def __call__(self, env, start_response):
-        with self.client.context():
+        with self.context:
             return self.app(env, start_response)
